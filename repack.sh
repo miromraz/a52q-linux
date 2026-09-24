@@ -5,7 +5,7 @@ set -e
 cd "$(dirname "$0")"
 OUT=out; mkdir -p $OUT
 
-[ -f u-boot/.output/.config ] || make -C u-boot O=.output qcom_a52q_defconfig qcom-phone.config
+[ -f u-boot/.output/.config ] || make -C u-boot O=.output qcom_a52q_defconfig qcom-phone.config a52q.config
 ( cd u-boot && make O=.output CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" 2>&1 | tail -3 )
 NODTB=u-boot/.output/u-boot-nodtb.bin
 DTB=u-boot/.output/dts/upstream/src/arm64/qcom/sm7125-samsung-a52q.dtb
