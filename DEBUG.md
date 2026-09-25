@@ -49,3 +49,15 @@ Build = qcom_a52q_defconfig + qcom-phone.config (repack.sh), header v0 no os_ver
 with odin4 (AP tar with boot.img). Screen shows U-Boot 2026.10-rc5, "Model: Samsung Galaxy A52", UFS scan of
 all 6 LUNs OK (LUN0 118.5 GB). Non-fatal UFS warnings: "error finding src node", "cannot get reset GPIO",
 "invalid ref_clk setting = 0". The missing qcom-phone.config (PANIC_HANG etc.) was the difference.
+
+## Flashing reliability (2026-09-25 evening)
+- Software-triggered Download Mode (`reboot bootloader` from Linux, `adb reboot download` from Android):
+  odin4 worked first try every time (01:32, 01:58).
+- Key-combo Download Mode after the LineageOS sideload: 3 fresh entries, odin4 triggers a USB reset storm
+  on open ("No such file or directory" on a stale /dev/bus/usb path), heimdall fails "Failed to send file
+  part size packet" — even as the first tool on a fresh session with adb/fastboot not running.
+- Lineage Recovery "Reboot to bootloader" = Samsung ABL FastBoot Mode (18d1:d00d), not Download Mode;
+  `fastboot getvar` answers, `fastboot flash` hangs (gutted) — don't use.
+- U-Boot PMIC reason: pm8998 shift is 1 → recovery = 0x02 (0x04 = bootloader → ABL FastBoot Mode).
+- U-Boot needs CONFIG_BLKMAP + CMD_BLKMAP for the nested-GPT `linux` partition (was missing → only
+  scsi 0-5 boot options). Also: after writing the nested image via UMS, U-Boot must be reset to rescan.
