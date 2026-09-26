@@ -1,9 +1,9 @@
 #!/bin/bash
 # Write the BengalOS a52q raw image (nested GPT, 4 KiB sectors) into the `linux` partition while U-Boot
 # "Enable USB mass storage" exposes LUN0. Streams from the build container (laptop disk is too small),
-# verifies by sha256, and wipes the old pmOS ESP in `cache` so EFI boot only finds BengalOS.
+# verifies by sha256. (`cache` now belongs to LineageOS - never touch it.)
 set -euo pipefail
-RAW=${1:-/mnt/sunfish-image/a52q/out/BengalOS_0.26.0924.1.raw}
+RAW=${1:-/mnt/sunfish-image/a52q/out/BengalOS_0.26.0925.2.raw}
 
 part() { readlink -f "/dev/disk/by-partlabel/$1"; }
 disk_of() { echo "/dev/$(lsblk -no PKNAME "$1")"; }
@@ -20,5 +20,4 @@ REMOTE=$(ssh build sha256sum "$RAW" | cut -d' ' -f1)
 [ "$LOCAL" = "$REMOTE" ] || { echo "CHECKSUM MISMATCH $LOCAL != $REMOTE"; exit 1; }
 echo "verified $LOCAL"
 
-sudo wipefs -a "$C"
 sync; sudo sgdisk -p "$L" | tail -6
