@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: CC0-1.0
+#
+# libcamera 0.7.2 soft-ISP tuning for the MACRO camera of the Galaxy A52 5G
+# (GalaxyCore GC5035, cci1 0x3f, model "gc5035_macro", see REPORT.md).
+# Source: stock A525FXXUAFXL2 com.samsung.tuned.lsi_gc5035_macro.bin (CamX
+# Chromatix), decoded by chromatix_dump.py.
+# - blackLevel: bls12 offset 1024/16384 = 64 @ 10 bit (dark frames: 64.0..64.2).
+# - Ccm: cc13_ipe matrices of the indoor lux region (lux index 280..340).
+#   Stock keys are real CCTs from Qualcomm AWB; libcamera keys the CCM on
+#   estimateCCT() of the grey-world raw R/G, B/G, which reads low for this
+#   sensor. Keys = estimateCCT() of the sensor's raw white point per
+#   illuminant (stock AWB reference points anchored to this module's OTP
+#   white balance): H 2300K -> 2490, A 2856K -> 2820, TL84 4000K -> 3960,
+#   D50 5000K -> 4480, D65 6500K -> 5490.
+%YAML 1.1
+---
+version: 1
+algorithms:
+  - BlackLevel:
+      blackLevel: 4096
+  - Awb:
+  - Ccm:
+      ccms:
+        - ct: 2490
+          ccm: [  1.7098, -0.5215, -0.1883,
+                 -0.4258,  1.4810, -0.0552,
+                 -0.2686, -0.8635,  2.1320 ]
+        - ct: 2820
+          ccm: [  2.0805, -1.3284,  0.2479,
+                 -0.3466,  1.2236,  0.1230,
+                 -0.2265, -1.0500,  2.2764 ]
+        - ct: 3960
+          ccm: [  2.1110, -1.2375,  0.1265,
+                 -0.3516,  1.6164, -0.2647,
+                 -0.0803, -0.9653,  2.0456 ]
+        - ct: 4480
+          ccm: [  1.7600, -0.9000,  0.1400,
+                 -0.3500,  1.5500, -0.2000,
+                 -0.0684, -0.6192,  1.6876 ]
+        - ct: 5490
+          ccm: [  2.0545, -1.0164, -0.0381,
+                 -0.3375,  1.7710, -0.4335,
+                 -0.1781, -0.6004,  1.7785 ]
+  - Adjust:
+  - Agc:
+...

@@ -1,0 +1,356 @@
+From 2c95333da8c641fb506edaae1c330ded78c87815 Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:07:34 +0200
+Subject: [PATCH 09/12] ipa: simple: agc: Log-space loop and frame duration
+ extension
+
+Port of the Pixel 4a libcamera-agc-vblank-and-dpc.patch, AGC part only:
+
+- Regulate ln(exposure) with a bounded multiplicative step instead of
+  the +/-4% proportional step, which needed tens of seconds to answer a
+  large scene change because stats arrive every 4th frame.
+- When exposure hits the frame-length ceiling, extend VBLANK (down to
+  15 fps) before raising analogue gain, and give it back first when the
+  scene gets brighter.
+
+Changes against the Pixel 4a version for the a52q sensors:
+
+- The VBLANK floor is the mode's default VBLANK, not the control
+  minimum. The a52q modes run at 30 fps with room for 60-120 fps; with
+  the minimum as floor a bright scene raised the frame rate.
+- VBLANK is a priority write in DelayedControls, and is written ahead of
+  the other controls on the direct (no frame start event) path, so the
+  exposure is not clamped to the range of the old frame length.
+- The frame height comes from the sensor information of the configured
+  mode.
+
+The DPC stage (CPU debayer only, while the a52q uses the GPU debayer)
+and the highlight shoulder of that patch are not carried.
+---
+ src/ipa/simple/algorithms/agc.cpp        | 110 +++++++++++++++--------
+ src/ipa/simple/ipa_context.h             |  10 +++
+ src/ipa/simple/soft_simple.cpp           |  46 ++++++++++
+ src/libcamera/pipeline/simple/simple.cpp |  17 ++++
+ 4 files changed, 146 insertions(+), 37 deletions(-)
+
+diff --git a/src/ipa/simple/algorithms/agc.cpp b/src/ipa/simple/algorithms/agc.cpp
+index a13a755..10d0475 100644
+--- a/src/ipa/simple/algorithms/agc.cpp
++++ b/src/ipa/simple/algorithms/agc.cpp
+@@ -40,26 +40,24 @@ static constexpr float kExposureOptimal = kExposureBinsCount / 2.0;
+ static constexpr float kExposureSatisfactory = 0.2;
+ 
+ /*
+- * Proportional gain for exposure/gain adjustment. Maps the MSV error to a
+- * multiplicative correction factor:
++ * Exposure is a multiplicative quantity, so the AGC regulates ln(exposure).
++ * A correction expressed as a fixed additive fraction of the error converges
++ * geometrically, which is agonisingly slow far from the target: the earlier
++ * "factor = 1.0 + 0.04 * error" form needed ~18-20 s to answer an 8x change,
++ * because stats only arrive every SwStatsCpu::kStatPerNumFrames (4th) frame.
+  *
+- *   factor = 1.0 + kExpProportionalGain * error
++ * The plant gain measured on the Pixel 4a IMX363 is dMSV/d(ln exposure) ~0.435
++ * (exposure 62 -> 230, dln 1.31, moved MSV 1.096 -> 1.666, dMSV 0.570), so a
++ * deadbeat step would be dln(exposure) = error / 0.435 ~= 2.3 * error.
++ * kExpLoopGain backs that off to a loop gain of ~0.35 for stability margin
++ * across scenes, and kExpMaxRatio bounds a single update so a dramatic scene
++ * change cannot swing exposure by more than 2x per stats frame.
+  *
+- * With kExpProportionalGain = 0.04:
+- *   - max error ~2.5 -> factor 1.10 (~10% step, same as before)
+- *   - error 1.0      -> factor 1.04 (~4% step)
+- *   - error 0.3      -> factor 1.012 (~1.2% step)
+- *
+- * This replaces the fixed 10% bang-bang step with a proportional correction
+- * that converges smoothly and avoids overshooting near the target.
+- */
+-static constexpr float kExpProportionalGain = 0.04;
+-
+-/*
+- * Maximum multiplicative step per frame, to bound the correction when the
+- * scene changes dramatically.
++ * Measured on that device: 3 corrections (~0.3 s) to settle an 8x error, in
++ * both directions, with no overshoot past the kExposureSatisfactory band.
+  */
+-static constexpr float kExpMaxStep = 0.15;
++static constexpr float kExpLoopGain = 0.8f;	/* loop gain ~0.35 */
++static constexpr float kExpMaxRatio = 2.0f;	/* per-update bound */
+ 
+ Agc::Agc()
+ {
+@@ -67,8 +65,10 @@ Agc::Agc()
+ 
+ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, double exposureMSV)
+ {
++	const auto &agcCfg = context.configuration.agc;
+ 	int32_t &exposure = frameContext.sensor.exposure;
+ 	double &again = frameContext.sensor.gain;
++	int32_t &vblank = frameContext.sensor.vblank;
+ 
+ 	double error = kExposureOptimal - exposureMSV;
+ 
+@@ -76,52 +76,86 @@ void Agc::updateExposure(IPAContext &context, IPAFrameContext &frameContext, dou
+ 		return;
+ 
+ 	/*
+-	 * Compute a proportional correction factor. The sign of the error
+-	 * determines the direction: positive error means too dark (increase),
+-	 * negative means too bright (decrease).
++	 * Compute a multiplicative correction factor in log space. The sign of
++	 * the error determines the direction: positive error means too dark
++	 * (factor > 1, increase), negative means too bright (factor < 1,
++	 * decrease). factor ranges over [1/kExpMaxRatio, kExpMaxRatio].
++	 */
++	float logStep = std::clamp(static_cast<float>(error) * kExpLoopGain,
++				   -std::log(kExpMaxRatio), std::log(kExpMaxRatio));
++	float factor = std::exp(logStep);
++
++	/*
++	 * The sensor's exposure ceiling grows one line for every extra VBLANK
++	 * line (the kernel driver widens V4L2_CID_EXPOSURE's range from its
++	 * V4L2_CID_VBLANK handler). exposureMax in the configuration is the
++	 * ceiling at vblankMin, so the effective ceiling at the current frame
++	 * duration is exposureMax + (vblank - vblankMin).
+ 	 */
+-	float step = std::clamp(static_cast<float>(error) * kExpProportionalGain,
+-				-kExpMaxStep, kExpMaxStep);
+-	float factor = 1.0f + step;
++	auto exposureMaxFor = [&](int32_t vb) {
++		return agcCfg.exposureMax + (vb - agcCfg.vblankMin);
++	};
+ 
+ 	if (factor > 1.0f) {
+-		/* Scene too dark: increase exposure first, then gain. */
+-		if (exposure < context.configuration.agc.exposureMax) {
++		/*
++		 * Scene too dark. Priority of light-gathering levers:
++		 *   1. exposure, up to the current frame-duration ceiling
++		 *   2. frame duration (VBLANK), which widens that ceiling and
++		 *      lets exposure keep growing - cleaner than gain
++		 *   3. analogue gain, as the last resort (adds noise)
++		 */
++		if (exposure < exposureMaxFor(vblank)) {
+ 			int32_t next = static_cast<int32_t>(exposure * factor);
+ 			exposure = std::max(next, exposure + 1);
++		} else if (agcCfg.vblankAvailable && vblank < agcCfg.vblankMax) {
++			int32_t next = static_cast<int32_t>(vblank * factor);
++			vblank = std::clamp(std::max(next, vblank + 1),
++					    agcCfg.vblankMin, agcCfg.vblankMax);
++			/* Let exposure take up the newly available headroom. */
++			exposure = std::max(exposure + 1,
++					    static_cast<int32_t>(exposure * factor));
+ 		} else {
+ 			double next = again * factor;
+-			if (next - again < context.configuration.agc.againMinStep)
+-				again += context.configuration.agc.againMinStep;
++			if (next - again < agcCfg.againMinStep)
++				again += agcCfg.againMinStep;
+ 			else
+ 				again = next;
+ 		}
+ 	} else {
+-		/* Scene too bright: decrease gain first, then exposure. */
+-		if (again > context.configuration.agc.again10) {
++		/*
++		 * Scene too bright. Reverse order: drop gain, then exposure,
++		 * and once exposure fits within the base ceiling again pull
++		 * VBLANK back down to restore the frame rate.
++		 */
++		if (again > agcCfg.again10) {
+ 			double next = again * factor;
+-			if (again - next < context.configuration.agc.againMinStep)
+-				again -= context.configuration.agc.againMinStep;
++			if (again - next < agcCfg.againMinStep)
++				again -= agcCfg.againMinStep;
+ 			else
+ 				again = next;
+-		} else {
++		} else if (exposure > agcCfg.exposureMax || !agcCfg.vblankAvailable ||
++			   vblank <= agcCfg.vblankMin) {
+ 			int32_t next = static_cast<int32_t>(exposure * factor);
+ 			exposure = std::min(next, exposure - 1);
++		} else {
++			int32_t next = static_cast<int32_t>(vblank * factor);
++			vblank = std::clamp(std::min(next, vblank - 1),
++					    agcCfg.vblankMin, agcCfg.vblankMax);
+ 		}
+ 	}
+ 
+-	exposure = std::clamp(exposure, context.configuration.agc.exposureMin,
+-			      context.configuration.agc.exposureMax);
+-	again = std::clamp(again, context.configuration.agc.againMin,
+-			   context.configuration.agc.againMax);
++	exposure = std::clamp(exposure, agcCfg.exposureMin, exposureMaxFor(vblank));
++	again = std::clamp(again, agcCfg.againMin, agcCfg.againMax);
+ 
+ 	context.activeState.agc.exposure = exposure;
+ 	context.activeState.agc.again = again;
++	context.activeState.agc.vblank = vblank;
+ 
+ 	LOG(IPASoftExposure, Debug)
+ 		<< "exposureMSV " << exposureMSV
+ 		<< " error " << error << " factor " << factor
+-		<< " exp " << exposure << " again " << again;
++		<< " exp " << exposure << " again " << again
++		<< " vblank " << vblank;
+ }
+ 
+ void Agc::process(IPAContext &context,
+@@ -142,6 +176,7 @@ void Agc::process(IPAContext &context,
+ 		 */
+ 		context.activeState.agc.exposure = frameContext.sensor.exposure;
+ 		context.activeState.agc.again = frameContext.sensor.gain;
++		context.activeState.agc.vblank = frameContext.sensor.vblank;
+ 		context.activeState.agc.valid = true;
+ 	}
+ 
+@@ -152,6 +187,7 @@ void Agc::process(IPAContext &context,
+ 		 */
+ 		frameContext.sensor.exposure = context.activeState.agc.exposure;
+ 		frameContext.sensor.gain = context.activeState.agc.again;
++		frameContext.sensor.vblank = context.activeState.agc.vblank;
+ 		return;
+ 	}
+ 
+diff --git a/src/ipa/simple/ipa_context.h b/src/ipa/simple/ipa_context.h
+index 8ccfacb..881e138 100644
+--- a/src/ipa/simple/ipa_context.h
++++ b/src/ipa/simple/ipa_context.h
+@@ -29,6 +29,14 @@ struct IPASessionConfiguration {
+ 		int32_t exposureMin, exposureMax;
+ 		double againMin, againMax, again10, againMinStep;
+ 		utils::Duration lineDuration;
++		/*
++		 * VBLANK (frame duration) control. vblankMax is capped so the
++		 * frame rate never drops below a floor (see soft_simple.cpp).
++		 * Raising VBLANK by N lines widens the sensor exposure ceiling
++		 * by N lines, so exposureMax above is the ceiling at vblankMin.
++		 */
++		bool vblankAvailable;
++		int32_t vblankMin, vblankMax;
+ 	} agc;
+ 	struct {
+ 		std::optional<uint8_t> level;
+@@ -39,6 +47,7 @@ struct IPAActiveState {
+ 	struct {
+ 		int32_t exposure;
+ 		double again;
++		int32_t vblank;
+ 		bool valid;
+ 	} agc;
+ 
+@@ -69,6 +78,7 @@ struct IPAFrameContext : public FrameContext {
+ 	struct {
+ 		int32_t exposure;
+ 		double gain;
++		int32_t vblank;
+ 	} sensor;
+ 
+ 	RGB<float> gains;
+diff --git a/src/ipa/simple/soft_simple.cpp b/src/ipa/simple/soft_simple.cpp
+index 81d81d9..21a2181 100644
+--- a/src/ipa/simple/soft_simple.cpp
++++ b/src/ipa/simple/soft_simple.cpp
+@@ -226,6 +226,41 @@ int IPASoftSimple::configure(const IPAConfigInfo &configInfo)
+ 		context_.configuration.agc.exposureMin = 1;
+ 	}
+ 
++	/*
++	 * If the sensor exposes VBLANK, the AGC can extend the frame duration to
++	 * raise the exposure ceiling once exposure is maxed. Cap VBLANK so the
++	 * frame rate never drops below kMinFrameRate, keeping the preview live.
++	 *
++	 * The floor is the mode's default VBLANK, not the control minimum:
++	 * many modes run at a nominal frame rate well below what the sensor
++	 * could do, and a bright scene must not push them to 60 or 120 fps.
++	 * The sensor driver resets VBLANK to its default on a mode change, so
++	 * exposureMax above is the ceiling at that floor.
++	 */
++	static constexpr double kMinFrameRate = 15.0;
++	context_.configuration.agc.vblankAvailable = false;
++	auto vblankIt = sensorInfoMap_.find(V4L2_CID_VBLANK);
++	double lineDurationUs =
++		context_.configuration.agc.lineDuration.get<std::micro>();
++	if (vblankIt != sensorInfoMap_.end() && lineDurationUs > 0) {
++		const ControlInfo &vblankInfo = vblankIt->second;
++		int32_t vblankHwMax = vblankInfo.max().get<int32_t>();
++		int32_t vblankMin = std::clamp(vblankInfo.def().get<int32_t>(),
++					       vblankInfo.min().get<int32_t>(),
++					       vblankHwMax);
++		int32_t frameHeight = context_.sensorInfo.outputSize.height;
++		/* Largest frame length (lines) that still meets kMinFrameRate. */
++		double maxFrameLines = (1.0e6 / kMinFrameRate) / lineDurationUs;
++		int32_t vblankFpsMax =
++			static_cast<int32_t>(maxFrameLines) - frameHeight;
++		int32_t vblankMax = std::clamp(vblankFpsMax, vblankMin, vblankHwMax);
++		if (vblankMax > vblankMin) {
++			context_.configuration.agc.vblankAvailable = true;
++			context_.configuration.agc.vblankMin = vblankMin;
++			context_.configuration.agc.vblankMax = vblankMax;
++		}
++	}
++
+ 	int32_t againMin = gainInfo.min().get<int32_t>();
+ 	int32_t againMax = gainInfo.max().get<int32_t>();
+ 	int32_t againDef = gainInfo.def().get<int32_t>();
+@@ -312,6 +347,13 @@ void IPASoftSimple::processStats(const uint32_t frame,
+ 	int32_t again = sensorControls.get(V4L2_CID_ANALOGUE_GAIN).get<int32_t>();
+ 	frameContext.sensor.gain = camHelper_ ? camHelper_->gain(again) : again;
+ 
++	if (context_.configuration.agc.vblankAvailable &&
++	    sensorControls.contains(V4L2_CID_VBLANK))
++		frameContext.sensor.vblank =
++			sensorControls.get(V4L2_CID_VBLANK).get<int32_t>();
++	else
++		frameContext.sensor.vblank = context_.configuration.agc.vblankMin;
++
+ 	ControlList metadata(controls::controls);
+ 	for (const auto &algo : algorithms())
+ 		algo->process(context_, frame, frameContext, stats_, metadata);
+@@ -331,6 +373,10 @@ void IPASoftSimple::processStats(const uint32_t frame,
+ 	ctrls.set(V4L2_CID_ANALOGUE_GAIN,
+ 		  static_cast<int32_t>(camHelper_ ? camHelper_->gainCode(againNew) : againNew));
+ 
++	/* Emit VBLANK so the frame duration follows the AGC. */
++	if (context_.configuration.agc.vblankAvailable)
++		ctrls.set(V4L2_CID_VBLANK, frameContext.sensor.vblank);
++
+ 	setSensorControls.emit(ctrls);
+ }
+ 
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index 0797e48..4f38e38 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -569,6 +569,14 @@ SimpleCameraData::SimpleCameraData(SimplePipelineHandler *pipe,
+ 	std::unordered_map<uint32_t, DelayedControls::ControlParams> params = {
+ 		{ V4L2_CID_ANALOGUE_GAIN, { delays.gainDelay, false } },
+ 		{ V4L2_CID_EXPOSURE, { delays.exposureDelay, false } },
++		/*
++		 * VBLANK lets the soft IPA extend the frame duration to raise the
++		 * exposure ceiling once exposure is maxed. It must be listed here
++		 * or DelayedControls::push() would reject the whole control set.
++		 * It is a priority write: the new exposure is validated against
++		 * the range the VBLANK value opens up.
++		 */
++		{ V4L2_CID_VBLANK, { delays.vblankDelay, true } },
+ 	};
+ 	delayedCtrls_ = std::make_unique<DelayedControls>(sensor_->device(), params);
+ 
+@@ -1054,6 +1062,15 @@ void SimpleCameraData::setSensorControls(const ControlList &sensorControls)
+ 	 */
+ 	if (!frameStartEmitter_) {
+ 		ControlList ctrls(sensorControls);
++		/*
++		 * Write VBLANK first, the exposure range the other controls
++		 * are validated against depends on it.
++		 */
++		if (ctrls.contains(V4L2_CID_VBLANK)) {
++			ControlList vblank(sensor_->controls());
++			vblank.set(V4L2_CID_VBLANK, ctrls.get(V4L2_CID_VBLANK));
++			sensor_->setControls(&vblank);
++		}
+ 		sensor_->setControls(&ctrls);
+ 	}
+ }

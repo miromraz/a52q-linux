@@ -1,0 +1,69 @@
+# SPDX-License-Identifier: CC0-1.0
+#
+# libcamera 0.7.2 soft-ISP tuning for the Sony IMX616 front camera of the
+# Samsung Galaxy A52 (SM-A525F, a52q). Values come from the stock CamX Chromatix
+# file com.samsung.tuned.sony_imx616.bin (A525FXXUAFXL2), see REPORT.md.
+# Install as /usr/share/libcamera/ipa/simple/imx616.yaml.
+%YAML 1.1
+---
+version: 1
+algorithms:
+  # 64 at 10 bit (measured on dark pixels; Chromatix bls12 offset 1028 @ 14 bit).
+  - BlackLevel:
+      blackLevel: 4096
+  - Awb:
+  # cc13_ipe, default tuning mode, "normal indoor" lux-index zone 300-390.
+  # The soft ISP picks a matrix by the colour temperature it estimates from
+  # the grey-world gains (estimateCCT()), which is not the real CCT for this
+  # sensor. Each vendor CCT was therefore mapped to the value estimateCCT()
+  # returns for the vendor's own white-balance gains at that CCT
+  # (MWBGainV1 table); the vendor CCT is in the comment.
+  - Ccm:
+      ccms:
+        - ct: 2880   # vendor 2500 K
+          ccm: [ 1.7549, -0.8397,  0.0848,
+                -0.2196,  1.4832, -0.2636,
+                -0.1040, -0.5945,  1.6985 ]
+        - ct: 3000   # vendor 2700-2900 K
+          ccm: [ 1.3352, -0.5053,  0.1701,
+                -0.3068,  1.0520,  0.2549,
+                -0.0391, -1.0312,  2.0703 ]
+        - ct: 3140
+          ccm: [ 1.3352, -0.5053,  0.1701,
+                -0.3068,  1.0520,  0.2549,
+                -0.0391, -1.0312,  2.0703 ]
+        - ct: 3350   # vendor 3100-3200 K
+          ccm: [ 1.5424, -0.6126,  0.0702,
+                -0.2066,  1.1055,  0.1011,
+                 0.0828, -0.7485,  1.6657 ]
+        - ct: 3460
+          ccm: [ 1.5424, -0.6126,  0.0702,
+                -0.2066,  1.1055,  0.1011,
+                 0.0828, -0.7485,  1.6657 ]
+        - ct: 3660   # vendor 3400-4200 K
+          ccm: [ 1.6119, -0.6237,  0.0118,
+                -0.1801,  1.0640,  0.1161,
+                 0.1376, -0.8353,  1.6978 ]
+        - ct: 4480
+          ccm: [ 1.6119, -0.6237,  0.0118,
+                -0.1801,  1.0640,  0.1161,
+                 0.1376, -0.8353,  1.6978 ]
+        - ct: 4980   # vendor 4700-6300 K
+          ccm: [ 1.5780, -0.7385,  0.1605,
+                -0.2201,  1.0947,  0.1254,
+                 0.0769, -0.8459,  1.7691 ]
+        - ct: 5700
+          ccm: [ 1.5780, -0.7385,  0.1605,
+                -0.2201,  1.0947,  0.1254,
+                 0.0769, -0.8459,  1.7691 ]
+        - ct: 5830   # vendor 6600-9500 K
+          ccm: [ 1.5873, -0.8938,  0.3064,
+                -0.0580,  1.1435, -0.0854,
+                 0.0200, -0.2928,  1.2728 ]
+        - ct: 6610
+          ccm: [ 1.5873, -0.8938,  0.3064,
+                -0.0580,  1.1435, -0.0854,
+                 0.0200, -0.2928,  1.2728 ]
+  - Adjust:
+  - Agc:
+...

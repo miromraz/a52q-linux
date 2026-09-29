@@ -1,0 +1,12 @@
+diff --git a/arch/arm64/configs/a52q_defconfig b/arch/arm64/configs/a52q_defconfig
+--- a/arch/arm64/configs/a52q_defconfig	2026-09-27 11:28:36.779031817 +0200
++++ b/arch/arm64/configs/a52q_defconfig	2026-09-27 11:28:43.055728307 +0200
+@@ -4364,7 +4364,7 @@
+ # Lens drivers
+ #
+ # CONFIG_VIDEO_AD5820 is not set
+-# CONFIG_VIDEO_AK7375 is not set
++CONFIG_VIDEO_AK7375=m
+ CONFIG_VIDEO_DW9714=m
+ # CONFIG_VIDEO_DW9719 is not set
+ # CONFIG_VIDEO_DW9768 is not set

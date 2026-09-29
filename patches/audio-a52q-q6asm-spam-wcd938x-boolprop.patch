@@ -1,0 +1,37 @@
+diff --git a/sound/soc/codecs/wcd938x-sdw.c b/sound/soc/codecs/wcd938x-sdw.c
+index 7da8a10bd..4e2ae542c 100644
+--- a/sound/soc/codecs/wcd938x-sdw.c
++++ b/sound/soc/codecs/wcd938x-sdw.c
+@@ -1229,7 +1229,7 @@ static int wcd9380_probe(struct sdw_slave *pdev,
+ 	 * Port map index starts with 0, however the data port for this codec
+ 	 * are from index 1
+ 	 */
+-	if (of_property_read_bool(dev->of_node, "qcom,tx-port-mapping")) {
++	if (of_property_present(dev->of_node, "qcom,tx-port-mapping")) {
+ 		wcd->is_tx = true;
+ 		ret = of_property_read_u32_array(dev->of_node, "qcom,tx-port-mapping",
+ 						 &pdev->m_port_map[1],
+diff --git a/sound/soc/qcom/qdsp6/q6asm.c b/sound/soc/qcom/qdsp6/q6asm.c
+index 06a802f9d..eee1c5366 100644
+--- a/sound/soc/qcom/qdsp6/q6asm.c
++++ b/sound/soc/qcom/qdsp6/q6asm.c
+@@ -654,6 +654,19 @@ static int32_t q6asm_stream_callback(struct apr_device *adev,
+ 				goto done;
+ 			}
+ 			break;
++		case ASM_DATA_CMD_WRITE_V2:
++		case ASM_DATA_CMD_READ_V2:
++		case ASM_DATA_CMD_EOS:
++			/*
++			 * Some DSP firmwares (e.g. Galaxy A52 / sm7125) emit a
++			 * redundant APR basic-response ack for these async data
++			 * commands. Completion is already tracked via the
++			 * dedicated WRITE_DONE / READ_DONE / RENDERED_EOS events,
++			 * so drop these acks silently instead of logging an error
++			 * for every buffer.
++			 */
++			ret = 0;
++			goto done;
+ 		default:
+ 			dev_err(ac->dev, "command[0x%x] not expecting rsp\n",
+ 				result->opcode);

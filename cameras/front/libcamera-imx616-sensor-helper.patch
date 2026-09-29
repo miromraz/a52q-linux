@@ -1,0 +1,55 @@
+libcamera: add IMX616 sensor helper and properties
+
+Sony gain model gain = 1024 / (1024 - code) (from the vendor sensor library),
+black level 64 @ 10 bit (measured), 0.8 um cells, test pattern menu of the
+kernel driver. Applies to libcamera 0.7.2 with patch -p1.
+
+diff -ruN a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+--- a/src/ipa/libipa/camera_sensor_helper.cpp	2026-09-27 11:14:19.061609146 +0200
++++ b/src/ipa/libipa/camera_sensor_helper.cpp	2026-09-27 11:14:19.148276139 +0200
+@@ -642,6 +642,19 @@
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("imx477", CameraSensorHelperImx477)
+ 
++class CameraSensorHelperImx616 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperImx616()
++	{
++		/* Measured on the Galaxy A52 (a52q) front camera: 64 at 10 bits. */
++		blackLevel_ = 4096;
++		/* Vendor sensor library: gain = 1024 / (1024 - code). */
++		gain_ = AnalogueGainLinear{ 0, 1024, -1, 1024 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("imx616", CameraSensorHelperImx616)
++
+ class CameraSensorHelperImx678 : public CameraSensorHelper
+ {
+ public:
+diff -ruN a/src/libcamera/sensor/camera_sensor_properties.cpp b/src/libcamera/sensor/camera_sensor_properties.cpp
+--- a/src/libcamera/sensor/camera_sensor_properties.cpp	2026-09-27 11:14:19.064942492 +0200
++++ b/src/libcamera/sensor/camera_sensor_properties.cpp	2026-09-27 11:14:19.148276139 +0200
+@@ -309,6 +309,22 @@
+ 				.hblankDelay = 3
+ 			},
+ 		} },
++		{ "imx616", {
++			.unitCellSize = { 800, 800 },
++			.testPatternModes = {
++				{ controls::draft::TestPatternModeOff, 0 },
++				{ controls::draft::TestPatternModeSolidColor, 1 },
++				{ controls::draft::TestPatternModeColorBars, 2 },
++				{ controls::draft::TestPatternModeColorBarsFadeToGray, 3 },
++				{ controls::draft::TestPatternModePn9, 4 },
++			},
++			.sensorDelays = {
++				.exposureDelay = 2,
++				.gainDelay = 2,
++				.vblankDelay = 2,
++				.hblankDelay = 2
++			},
++		} },
+ 		{ "imx678", {
+ 			.unitCellSize = { 2000, 2000 },
+ 			.testPatternModes = {},

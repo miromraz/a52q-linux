@@ -1,0 +1,113 @@
+From 9ef89889cc6b550807012e712508f58b122df43d Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:57:34 +0200
+Subject: [PATCH 14/16] pipeline: simple: Prefer sensor modes matching the
+ stream aspect ratio
+
+The pipeline configuration was the smallest capture size that can
+produce the largest processed stream, regardless of its aspect ratio.
+The software ISP (and converters) scale the capture uniformly and crop
+the excess, so a 4:3 stream on a sensor with a smaller 16:9 mode was
+produced from that mode and lost a quarter of the horizontal field of
+view (Galaxy A52 5G main camera: 1280x960 from the 2000x1128 mode
+instead of the 4624x3468 one).
+
+Among the configurations large enough for all streams, only keep the
+ones whose aspect ratio is closest (within ~5%) to the one of the
+largest processed stream, and pick the smallest of those as before.
+Nothing changes when all fitting modes have the same aspect ratio, or
+for raw-only configurations.
+---
+ src/libcamera/pipeline/simple/simple.cpp | 56 ++++++++++++++++++++----
+ 1 file changed, 48 insertions(+), 8 deletions(-)
+
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index 4fa2242..b883692 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -7,7 +7,9 @@
+  */
+ 
+ #include <algorithm>
++#include <cmath>
+ #include <iterator>
++#include <limits>
+ #include <list>
+ #include <map>
+ #include <memory>
+@@ -1240,26 +1242,64 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
+ 	 * Then pick, among the possible configuration for the pixel format,
+ 	 * the smallest sensor resolution that can accommodate all streams
+ 	 * without upscaling.
++	 *
++	 * Among those, only consider the ones whose aspect ratio is closest to
++	 * the one of the largest processed stream. Processing scales the
++	 * capture uniformly and crops the excess, so a mismatching sensor mode
++	 * loses field of view (a 4:3 stream from a 16:9 mode drops a quarter
++	 * of the width).
+ 	 */
+ 	const SimpleCameraData::Configuration *maxPipeConfig = nullptr;
+ 	pipeConfig_ = nullptr;
+ 
+-	for (const SimpleCameraData::Configuration *pipeConfig : *configs) {
++	auto fits = [&](const SimpleCameraData::Configuration *pipeConfig) {
+ 		const Size &captureSize = pipeConfig->captureSize;
+ 		const Size &maxOutputSize = pipeConfig->outputSizes.max;
+ 
+-		if (maxOutputSize.width >= maxProcessedStreamSize.width &&
+-		    maxOutputSize.height >= maxProcessedStreamSize.height &&
+-		    captureSize.width >= maxRawStreamSize.width &&
+-		    captureSize.height >= maxRawStreamSize.height) {
+-			if (!pipeConfig_ || captureSize < pipeConfig_->captureSize)
+-				pipeConfig_ = pipeConfig;
+-		}
++		return maxOutputSize.width >= maxProcessedStreamSize.width &&
++		       maxOutputSize.height >= maxProcessedStreamSize.height &&
++		       captureSize.width >= maxRawStreamSize.width &&
++		       captureSize.height >= maxRawStreamSize.height;
++	};
++
++	/* Absolute log of the aspect ratio quotient, 0 for a perfect match. */
++	auto aspectMismatch = [&](const Size &size) {
++		if (maxProcessedStreamSize.isNull())
++			return 0.0;
++
++		return std::abs(std::log(static_cast<double>(size.width) *
++					 maxProcessedStreamSize.height /
++					 (static_cast<double>(size.height) *
++					  maxProcessedStreamSize.width)));
++	};
++
++	double bestMismatch = std::numeric_limits<double>::infinity();
++
++	for (const SimpleCameraData::Configuration *pipeConfig : *configs) {
++		const Size &captureSize = pipeConfig->captureSize;
++
++		if (fits(pipeConfig))
++			bestMismatch = std::min(bestMismatch,
++						aspectMismatch(captureSize));
+ 
+ 		if (!maxPipeConfig || maxPipeConfig->captureSize < captureSize)
+ 			maxPipeConfig = pipeConfig;
+ 	}
+ 
++	/* Tolerate ~5% so that small cropping differences do not matter. */
++	constexpr double kAspectTolerance = 0.05;
++
++	for (const SimpleCameraData::Configuration *pipeConfig : *configs) {
++		const Size &captureSize = pipeConfig->captureSize;
++
++		if (!fits(pipeConfig) ||
++		    aspectMismatch(captureSize) > bestMismatch + kAspectTolerance)
++			continue;
++
++		if (!pipeConfig_ || captureSize < pipeConfig_->captureSize)
++			pipeConfig_ = pipeConfig;
++	}
++
+ 	/* If no configuration was large enough, select the largest one. */
+ 	if (!pipeConfig_)
+ 		pipeConfig_ = maxPipeConfig;
+-- 
+2.55.0
+

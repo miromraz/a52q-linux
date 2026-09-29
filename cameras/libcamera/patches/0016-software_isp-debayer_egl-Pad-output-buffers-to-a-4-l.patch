@@ -1,0 +1,43 @@
+From 39905cb2d4623b8f915b27de66953b83d201030c Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:58:09 +0200
+Subject: [PATCH 16/16] software_isp: debayer_egl: Pad output buffers to a
+ 4-line height
+
+Output buffers were sized stride * height. Mesa freedreno (Adreno 618,
+Mesa 26.1) lays linear RGBA render targets out with the height aligned
+to 4 lines and refuses to import a dmabuf smaller than that layout, so
+eglCreateImageKHR failed for the output of every frame when the height
+was not a multiple of 4 and the page rounding of the allocation left
+less than the missing lines (1000x750: "debayerGPU failed" on every
+frame, no request completed, cam hung until killed). 256x750 worked
+only because its allocation happened to have enough slack.
+
+Size the output buffers for a height aligned to 4 lines. The stride and
+the image size are unchanged.
+---
+ src/libcamera/software_isp/debayer_egl.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/libcamera/software_isp/debayer_egl.cpp b/src/libcamera/software_isp/debayer_egl.cpp
+index 6254c91..81cd050 100644
+--- a/src/libcamera/software_isp/debayer_egl.cpp
++++ b/src/libcamera/software_isp/debayer_egl.cpp
+@@ -387,7 +387,13 @@ DebayerEGL::strideAndFrameSize(const PixelFormat &outputFormat, const Size &size
+ 	/* Align stride to 256 bytes as a generic GPU memory access alignment */
+ 	unsigned int stride = libcamera::utils::alignUp(size.width * config.bpp / 8, 256);
+ 
+-	return std::make_tuple(stride, stride * size.height);
++	/*
++	 * Size the buffer for a height aligned to 4 lines. Mesa freedreno
++	 * (Adreno 6xx) lays out linear render targets that way and rejects the
++	 * import of a smaller dmabuf, which made every frame fail for heights
++	 * such as 750.
++	 */
++	return std::make_tuple(stride, stride * libcamera::utils::alignUp(size.height, 4));
+ }
+ 
+ uint32_t DebayerEGL::preferredInputStride(const PixelFormat &inputFormat, const Size &size)
+-- 
+2.55.0
+

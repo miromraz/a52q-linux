@@ -1,0 +1,310 @@
+--- a/drivers/media/i2c/s5k3l6xx.c
++++ b/drivers/media/i2c/s5k3l6xx.c
+@@ -3,8 +3,9 @@
+  * Samsung S5K3L6XX 13M CMOS image sensor driver (Galaxy A52 4G ultra-wide).
+  *
+  * Register tables decoded from the vendor CamX sensor module
+- * (com.samsung.sensormodule.2_0_lsi_s5k3l6.bin, QTI Chromatix): a single
+- * 4000x3000@30fps 4-lane RAW10 mode tuned for a 19.2 MHz MCLK.
++ * (com.samsung.sensormodule.2_0_lsi_s5k3l6.bin, QTI Chromatix): the
++ * 4000x3000@30fps 4-lane RAW10 mode tuned for a 19.2 MHz MCLK, plus a 2x2
++ * binned 2000x1500 mode derived from it (same PLL, same link frequency).
+  *
+  * Copyright (C) 2020-2021 Purism SPC
+  */
+@@ -35,16 +36,25 @@
+ #define S5K3L6XX_REG_TEST_PATTERN CCI_REG8(0x0601)
+ #define S5K3L6XX_REG_PLL_PD	CCI_REG8(0x3c1e)
+ 
+-/* mode: 4000x3000 @30fps, 4-lane RAW10, link 595.2 MHz. */
+-#define S5K3L6XX_WIDTH		4000
+-#define S5K3L6XX_HEIGHT		3000
+-#define S5K3L6XX_LLP_DEF	4896
+-#define S5K3L6XX_FLL_DEF	3253
++/* Pixel array addresses 0..4223 x 0..3135; the vendor crops are centred on it. */
++#define S5K3L6XX_NATIVE_WIDTH	4224
++#define S5K3L6XX_NATIVE_HEIGHT	3136
++#define S5K3L6XX_LLP		4896
++#define S5K3L6XX_FLL_MAX	0xffff
+ #define S5K3L6XX_EXPOSURE_DEF	0x03de
+-#define S5K3L6XX_VBLANK_MIN	(S5K3L6XX_FLL_DEF - S5K3L6XX_HEIGHT)
++/* Vendor exposureControlInfo: min line count 2, max = frame length - 10. */
++#define S5K3L6XX_EXPOSURE_MIN	2
++#define S5K3L6XX_EXPOSURE_MARGIN 10
++/* Vendor maxAnalogGain 16.0; the gain register is gain * 32. */
++#define S5K3L6XX_AGAIN_MIN	0x20
++#define S5K3L6XX_AGAIN_MAX	0x200
++/* OP PLL: 19.2 MHz / 3 * 93 = 595.2 MHz (1190.4 Mbps/lane). */
+ #define S5K3L6XX_LINK_FREQ	595200000LL
+-/* pixel_rate = link_freq * 2 (DDR) * 4 lanes / 10 bits_per_sample */
+-#define S5K3L6XX_PIXEL_RATE	476160000LL
++/*
++ * VT PLL: 19.2 MHz / 3 * 112 = 716.8 MHz, 2/3 of it is the pixel rate.
++ * Checks out on the phone: LLP 4896 x FLL 3253 streams at 30.00 fps.
++ */
++#define S5K3L6XX_PIXEL_RATE	477866667LL
+ 
+ #define S5K3L6XX_DEFAULT_MCLK	24000000U
+ 
+@@ -84,6 +94,41 @@
+ 	{CCI_REG16(0x3892), 0x3600}, {CCI_REG16(0x3c1e), 0x0100},
+ };
+ 
++/*
++ * 2x2 binning on top of the 4000x3000 table: same crop, PLL and line length.
++ * 0x0900/0x0386 follow the vendor 4x4 mode (0x0144, 7); without its 0x380c
++ * value the sensor sends no frames. Its 0x3090/0x3238 values are left out:
++ * they zero the image (0x3238) or double the pedestal (0x3090) at 2x2.
++ * Dark noise at 16x gain: std 3.05 binned vs 5.0 full resolution.
++ */
++static const struct cci_reg_sequence s5k3l6xx_bin2x2[] = {
++	{CCI_REG16(0x034c), 2000}, {CCI_REG16(0x034e), 1500},
++	{CCI_REG16(0x0900), 0x0122}, {CCI_REG16(0x0386), 0x0003},
++	{CCI_REG16(0x380c), 0x0046},
++};
++
++struct s5k3l6xx_mode {
++	u32 width;
++	u32 height;
++	u32 fll_def;	/* 30 fps */
++	u32 fll_min;
++	const struct cci_reg_sequence *regs;	/* applied after the 4000x3000 table */
++	unsigned int num_regs;
++};
++
++static const struct s5k3l6xx_mode s5k3l6xx_modes[] = {
++	{ .width = 4000, .height = 3000, .fll_def = 3253, .fll_min = 3253 },
++	{
++		.width = 2000, .height = 1500, .fll_def = 3253, .fll_min = 1626,
++		.regs = s5k3l6xx_bin2x2, .num_regs = ARRAY_SIZE(s5k3l6xx_bin2x2),
++	},
++};
++
++/* Analogue crop of both modes (vendor x 0x0070..0x100f, y 0x0044..0x0bfb). */
++static const struct v4l2_rect s5k3l6xx_crop = {
++	.left = 112, .top = 68, .width = 4000, .height = 3000,
++};
++
+ /* RAW10 data format and 4-lane mode, applied after the vendor tables. */
+ static const struct cci_reg_sequence s5k3l6xx_fmt[] = {
+ 	{S5K3L6XX_REG_DATA_FORMAT, 0x0a0a},
+@@ -118,7 +163,8 @@
+ 	struct v4l2_ctrl *vblank;
+ 	struct v4l2_ctrl *hblank;
+ 
+-	struct mutex lock;	/* serialise power/stream state */
++	struct mutex lock;	/* serialise power/stream state and mode */
++	const struct s5k3l6xx_mode *mode;
+ 	bool streaming;
+ };
+ 
+@@ -180,11 +226,14 @@
+ 			    ARRAY_SIZE(s5k3l6xx_vendor_init), &ret);
+ 	cci_multi_reg_write(s->regmap, s5k3l6xx_vendor_4000x3000,
+ 			    ARRAY_SIZE(s5k3l6xx_vendor_4000x3000), &ret);
++	if (s->mode->regs)
++		cci_multi_reg_write(s->regmap, s->mode->regs, s->mode->num_regs,
++				    &ret);
+ 	cci_multi_reg_write(s->regmap, s5k3l6xx_fmt,
+ 			    ARRAY_SIZE(s5k3l6xx_fmt), &ret);
+ 	if (ret)
+ 		return ret;
+-	ret = __v4l2_ctrl_handler_setup(&s->ctrls);
++	ret = v4l2_ctrl_handler_setup(&s->ctrls);
+ 	if (ret)
+ 		return ret;
+ 	/* stream on: blank PLL, select streaming, unblank PLL */
+@@ -230,8 +279,9 @@
+ 	int ret;
+ 
+ 	if (ctrl->id == V4L2_CID_VBLANK)
+-		__v4l2_ctrl_modify_range(s->exposure, 2,
+-					 S5K3L6XX_HEIGHT + ctrl->val - 8, 1,
++		__v4l2_ctrl_modify_range(s->exposure, S5K3L6XX_EXPOSURE_MIN,
++					 s->mode->height + ctrl->val -
++					 S5K3L6XX_EXPOSURE_MARGIN, 1,
+ 					 S5K3L6XX_EXPOSURE_DEF);
+ 
+ 	if (!pm_runtime_get_if_in_use(&c->dev))
+@@ -246,11 +296,11 @@
+ 		break;
+ 	case V4L2_CID_VBLANK:
+ 		ret = cci_write(s->regmap, S5K3L6XX_REG_FLL,
+-				S5K3L6XX_HEIGHT + ctrl->val, NULL);
++				s->mode->height + ctrl->val, NULL);
+ 		break;
+ 	case V4L2_CID_HBLANK:
+ 		ret = cci_write(s->regmap, S5K3L6XX_REG_LLP,
+-				S5K3L6XX_WIDTH + ctrl->val, NULL);
++				s->mode->width + ctrl->val, NULL);
+ 		break;
+ 	case V4L2_CID_TEST_PATTERN:
+ 		ret = cci_write(s->regmap, S5K3L6XX_REG_TEST_PATTERN, ctrl->val, NULL);
+@@ -267,10 +317,11 @@
+ 	.s_ctrl = s5k3l6xx_set_ctrl,
+ };
+ 
+-static void s5k3l6xx_fill_fmt(struct v4l2_mbus_framefmt *f)
++static void s5k3l6xx_fill_fmt(const struct s5k3l6xx_mode *mode,
++			      struct v4l2_mbus_framefmt *f)
+ {
+-	f->width = S5K3L6XX_WIDTH;
+-	f->height = S5K3L6XX_HEIGHT;
++	f->width = mode->width;
++	f->height = mode->height;
+ 	f->code = MEDIA_BUS_FMT_SGRBG10_1X10;
+ 	f->field = V4L2_FIELD_NONE;
+ 	f->colorspace = V4L2_COLORSPACE_RAW;
+@@ -280,10 +331,79 @@
+ 			    struct v4l2_subdev_state *state,
+ 			    struct v4l2_subdev_format *fmt)
+ {
+-	s5k3l6xx_fill_fmt(&fmt->format);
++	struct s5k3l6xx *s = to_s5k3l6xx(sd);
++
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		fmt->format = *v4l2_subdev_state_get_format(state, 0);
++		return 0;
++	}
++	mutex_lock(&s->lock);
++	s5k3l6xx_fill_fmt(s->mode, &fmt->format);
++	mutex_unlock(&s->lock);
+ 	return 0;
+ }
+ 
++static int s5k3l6xx_set_fmt(struct v4l2_subdev *sd,
++			    struct v4l2_subdev_state *state,
++			    struct v4l2_subdev_format *fmt)
++{
++	struct s5k3l6xx *s = to_s5k3l6xx(sd);
++	const struct s5k3l6xx_mode *mode;
++	int ret = 0;
++
++	mode = v4l2_find_nearest_size(s5k3l6xx_modes, ARRAY_SIZE(s5k3l6xx_modes),
++				      width, height, fmt->format.width,
++				      fmt->format.height);
++	s5k3l6xx_fill_fmt(mode, &fmt->format);
++
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		*v4l2_subdev_state_get_format(state, 0) = fmt->format;
++		return 0;
++	}
++
++	mutex_lock(&s->lock);
++	if (s->mode == mode)
++		goto out;
++	if (s->streaming) {
++		ret = -EBUSY;
++		goto out;
++	}
++	s->mode = mode;
++	ret = v4l2_ctrl_modify_range(s->hblank, S5K3L6XX_LLP - mode->width,
++				     S5K3L6XX_LLP - mode->width, 1,
++				     S5K3L6XX_LLP - mode->width);
++	if (!ret)
++		ret = v4l2_ctrl_modify_range(s->vblank,
++					     mode->fll_min - mode->height,
++					     S5K3L6XX_FLL_MAX - mode->height, 1,
++					     mode->fll_def - mode->height);
++	if (!ret)
++		ret = v4l2_ctrl_s_ctrl(s->vblank, mode->fll_def - mode->height);
++out:
++	mutex_unlock(&s->lock);
++	return ret;
++}
++
++static int s5k3l6xx_get_selection(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state,
++				  struct v4l2_subdev_selection *sel)
++{
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r = s5k3l6xx_crop;
++		return 0;
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++		sel->r.left = 0;
++		sel->r.top = 0;
++		sel->r.width = S5K3L6XX_NATIVE_WIDTH;
++		sel->r.height = S5K3L6XX_NATIVE_HEIGHT;
++		return 0;
++	}
++	return -EINVAL;
++}
++
+ static int s5k3l6xx_enum_mbus_code(struct v4l2_subdev *sd,
+ 				   struct v4l2_subdev_state *state,
+ 				   struct v4l2_subdev_mbus_code_enum *code)
+@@ -298,17 +418,19 @@
+ 				    struct v4l2_subdev_state *state,
+ 				    struct v4l2_subdev_frame_size_enum *fse)
+ {
+-	if (fse->index || fse->code != MEDIA_BUS_FMT_SGRBG10_1X10)
++	if (fse->index >= ARRAY_SIZE(s5k3l6xx_modes) ||
++	    fse->code != MEDIA_BUS_FMT_SGRBG10_1X10)
+ 		return -EINVAL;
+-	fse->min_width = fse->max_width = S5K3L6XX_WIDTH;
+-	fse->min_height = fse->max_height = S5K3L6XX_HEIGHT;
++	fse->min_width = fse->max_width = s5k3l6xx_modes[fse->index].width;
++	fse->min_height = fse->max_height = s5k3l6xx_modes[fse->index].height;
+ 	return 0;
+ }
+ 
+ static int s5k3l6xx_init_state(struct v4l2_subdev *sd,
+ 			       struct v4l2_subdev_state *state)
+ {
+-	s5k3l6xx_fill_fmt(v4l2_subdev_state_get_format(state, 0));
++	s5k3l6xx_fill_fmt(&s5k3l6xx_modes[0],
++			  v4l2_subdev_state_get_format(state, 0));
+ 	return 0;
+ }
+ 
+@@ -320,7 +442,8 @@
+ 	.enum_mbus_code = s5k3l6xx_enum_mbus_code,
+ 	.enum_frame_size = s5k3l6xx_enum_frame_size,
+ 	.get_fmt = s5k3l6xx_get_fmt,
+-	.set_fmt = s5k3l6xx_get_fmt,	/* single fixed mode */
++	.set_fmt = s5k3l6xx_set_fmt,
++	.get_selection = s5k3l6xx_get_selection,
+ };
+ 
+ static const struct v4l2_subdev_ops s5k3l6xx_subdev_ops = {
+@@ -354,18 +477,20 @@
+ 		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+ 
+ 	s->exposure = v4l2_ctrl_new_std(h, &s5k3l6xx_ctrl_ops, V4L2_CID_EXPOSURE,
+-					2, S5K3L6XX_FLL_DEF - 8, 1,
+-					S5K3L6XX_EXPOSURE_DEF);
+-	/* Analog gain: reg/32, so 0x20 == 1x, up to 16x. */
++					S5K3L6XX_EXPOSURE_MIN,
++					s->mode->fll_def - S5K3L6XX_EXPOSURE_MARGIN,
++					1, S5K3L6XX_EXPOSURE_DEF);
+ 	v4l2_ctrl_new_std(h, &s5k3l6xx_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
+-			  0x20, 0x200, 1, 0x20);
++			  S5K3L6XX_AGAIN_MIN, S5K3L6XX_AGAIN_MAX, 1,
++			  S5K3L6XX_AGAIN_MIN);
+ 	s->vblank = v4l2_ctrl_new_std(h, &s5k3l6xx_ctrl_ops, V4L2_CID_VBLANK,
+-				      S5K3L6XX_VBLANK_MIN, 0xffff - S5K3L6XX_HEIGHT,
+-				      1, S5K3L6XX_VBLANK_MIN);
++				      s->mode->fll_min - s->mode->height,
++				      S5K3L6XX_FLL_MAX - s->mode->height, 1,
++				      s->mode->fll_def - s->mode->height);
+ 	s->hblank = v4l2_ctrl_new_std(h, &s5k3l6xx_ctrl_ops, V4L2_CID_HBLANK,
+-				      S5K3L6XX_LLP_DEF - S5K3L6XX_WIDTH,
+-				      S5K3L6XX_LLP_DEF - S5K3L6XX_WIDTH, 1,
+-				      S5K3L6XX_LLP_DEF - S5K3L6XX_WIDTH);
++				      S5K3L6XX_LLP - s->mode->width,
++				      S5K3L6XX_LLP - s->mode->width, 1,
++				      S5K3L6XX_LLP - s->mode->width);
+ 	if (s->hblank)
+ 		s->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+ 
+@@ -431,6 +556,7 @@
+ 		return -ENOMEM;
+ 
+ 	mutex_init(&s->lock);
++	s->mode = &s5k3l6xx_modes[0];
+ 	v4l2_i2c_subdev_init(&s->sd, c, &s5k3l6xx_subdev_ops);
+ 	s->sd.internal_ops = &s5k3l6xx_internal_ops;
+ 

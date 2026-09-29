@@ -1,0 +1,33 @@
+diff --git a/sound/soc/qcom/qdsp6/q6asm.c b/sound/soc/qcom/qdsp6/q6asm.c
+index 06a802f9d..72be742d3 100644
+--- a/sound/soc/qcom/qdsp6/q6asm.c
++++ b/sound/soc/qcom/qdsp6/q6asm.c
+@@ -654,6 +654,28 @@ static int32_t q6asm_stream_callback(struct apr_device *adev,
+ 				goto done;
+ 			}
+ 			break;
++		case ASM_DATA_CMD_WRITE_V2:
++		case ASM_DATA_CMD_READ_V2:
++		case ASM_DATA_CMD_EOS:
++			/*
++			 * Some DSP firmwares (e.g. Galaxy A52 / sm7125) emit a
++			 * redundant APR basic-response ack for these async data
++			 * commands. Completion is already tracked via the
++			 * dedicated WRITE_DONE / READ_DONE / RENDERED_EOS events,
++			 * so drop successful acks silently instead of logging an
++			 * error for every buffer.
++			 *
++			 * ADSP_ENOTREADY is likewise expected here: it is the DSP
++			 * rejecting reads/EOS that were queued in prepare but
++			 * flushed when the stream is closed (or re-prepared)
++			 * before it ever ran, as PipeWire/WirePlumber does while
++			 * probing the card. Only log genuinely unexpected errors.
++			 */
++			if (result->status && result->status != ADSP_ENOTREADY)
++				dev_err(ac->dev, "cmd = 0x%x returned error = 0x%x\n",
++					result->opcode, result->status);
++			ret = 0;
++			goto done;
+ 		default:
+ 			dev_err(ac->dev, "command[0x%x] not expecting rsp\n",
+ 				result->opcode);

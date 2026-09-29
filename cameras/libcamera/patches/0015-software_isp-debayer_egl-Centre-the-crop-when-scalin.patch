@@ -1,0 +1,47 @@
+From e41547c42c9d55e0da7ad8408027e9824c7fd9d1 Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:57:54 +0200
+Subject: [PATCH 15/16] software_isp: debayer_egl: Centre the crop when scaling
+
+When the output aspect ratio differs from the input one, the scaled
+image overflows the output in one direction. The projection anchored
+it at the origin, so the output showed one edge of the field of view
+(for 1280x960 from 2000x1128, the left 75% of the frame) instead of its
+centre, unlike the CPU debayer which crops a centred window.
+
+Translate so that the centre of the input maps onto the centre of the
+output. The viewport has the input size, so the translation in
+normalised device coordinates is output / input - 1, which is the
+previous value (scale - 1) whenever that direction is not cropped.
+---
+ src/libcamera/software_isp/debayer_egl.cpp | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/src/libcamera/software_isp/debayer_egl.cpp b/src/libcamera/software_isp/debayer_egl.cpp
+index ff778ad..6254c91 100644
+--- a/src/libcamera/software_isp/debayer_egl.cpp
++++ b/src/libcamera/software_isp/debayer_egl.cpp
+@@ -416,12 +416,18 @@ void DebayerEGL::setShaderVariableValues(eGLImage &eglImageIn, const DebayerPara
+ 	 */
+ 	GLfloat scale = std::max((GLfloat)outputSize_.width / nativeOutputSize_.width,
+ 				 (GLfloat)outputSize_.height / nativeOutputSize_.height);
+-	GLfloat trans = -(1.0f - scale);
++	/*
++	 * The viewport has the input size. Map the centre of the input onto
++	 * the centre of the output so that the excess is cropped evenly on
++	 * both sides.
++	 */
++	GLfloat transX = (GLfloat)outputSize_.width / width_ - 1.0f;
++	GLfloat transY = (GLfloat)outputSize_.height / height_ - 1.0f;
+ 	GLfloat projMatrix[] = {
+ 		scale, 0, 0, 0,
+ 		0, scale, 0, 0,
+ 		0, 0, 1, 0,
+-		trans, trans, 0, 1
++		transX, transY, 0, 1
+ 	};
+ 	/* Static const coordinates */
+ 	static const GLfloat vcoordinates[4][2] = {
+-- 
+2.55.0
+

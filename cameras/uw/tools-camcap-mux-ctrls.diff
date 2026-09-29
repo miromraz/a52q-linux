@@ -1,0 +1,64 @@
+--- a/tools/camcap.py
++++ b/tools/camcap.py
+@@ -225,6 +225,12 @@
+         if not is_data_link(l['flags']): continue
+         if l['src'] in src_pads:
+             phy=P[l['snk']]['ent']
++    mux=None
++    if phy is not None and E[phy]['name'].startswith('video-mux'):
++        # UW sits behind the gpio66 video-mux: sensor -> mux:0, mux:2 -> csiphy3
++        mux=phy; mux_in=P[next(l['snk'] for l in L if is_data_link(l['flags']) and l['src'] in src_pads)]['idx']
++        mux_src={pid for pid,p in P.items() if p['ent']==mux and p['flags'] & 2}
++        phy=next(P[l['snk']]['ent'] for l in L if is_data_link(l['flags']) and l['src'] in mux_src)
+     csid=byname[csid_name]; vid=byname[video_name]
+     # find vfe_rdi feeding this video (immutable link into video sink)
+     vfe=None
+@@ -239,6 +245,8 @@
+             try: setup_link(mfd, sp['ent'],sp['idx'], kp['ent'],kp['idx'], False)
+             except OSError: pass
+     # enable links: csiphy:1 -> csid:0 ; csid:csid_src_pad -> vfe_rdi:0
++    if mux is not None:
++        setup_link(mfd, sid,0, mux,mux_in, True)
+     setup_link(mfd, phy,1, csid,0, True)
+     setup_link(mfd, csid,csid_src_pad, vfe,0, True)
+     # subdev devnodes
+@@ -256,6 +264,11 @@
+         except OSError as e: print(f"  sensor S_FMT failed: {e}")
+     code,w,h=subdev_fmt(sfd,0,True)         # sensor current format
+     print(f"sensor fmt code=0x{code:x} {w}x{h}")
++    for env,cid in (("GAIN",0x009e0903),("EXP",0x00980911),("VBLANK",0x009e0901)):
++        v=os.environ.get(env)
++        if v is not None:
++            fcntl.ioctl(sfd,IOWR(V,28,8),struct.pack("<Ii",cid,int(v)),True)
++            print(f"  set {env}={v}")
+     tp=os.environ.get("TP")
+     if tp is not None:
+         VIDIOC_S_CTRL=IOWR(V,28,8)
+@@ -266,7 +279,9 @@
+     # propagate down the chain. In qcom-camss setting the sink pad (0) makes the
+     # source pad mirror it; setting source pads may be rejected, so try both but
+     # tolerate failures on source pads.
+-    for dpath,pads in [(phy_d,[0,1]),(csid_d,[0,csid_src_pad]),(vfe_d,[0,1])]:
++    chain=[(phy_d,[0,1]),(csid_d,[0,csid_src_pad]),(vfe_d,[0,1])]
++    if mux is not None: chain.insert(0,(sd(mux),[mux_in,2]))
++    for dpath,pads in chain:
+         f=os.open(dpath,os.O_RDWR)
+         for pad in pads:
+             try: subdev_fmt(f,pad,False,code,w,h)
+@@ -297,6 +312,7 @@
+             if e.errno==11: continue  # EAGAIN
+             print("DQBUF err",e); break
+         got+=1
++        if got==5: t5=time.time()
+         if not saved:
+             data=bytes(maps[idx][0][:used if used else maps[idx][1]])
+             open(outpath,'wb').write(data)
+@@ -306,7 +322,7 @@
+             saved=True
+         qbuf(vfd,idx)
+     fcntl.ioctl(vfd,VIDIOC_STREAMOFF,struct.pack("<i",9))
+-    print(f"captured {got} frames")
++    print(f"captured {got} frames" + (f", {(got-5)/(time.time()-t5):.2f} fps after frame 5" if got>10 else ""))
+     os.close(vfd); os.close(mfd)
+ 
+ GPIOHANDLE_REQUEST_OUTPUT=(1<<1)

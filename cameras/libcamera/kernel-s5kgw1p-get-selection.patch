@@ -1,0 +1,76 @@
+--- a/drivers/media/i2c/s5kgw1p.c	2026-09-27 12:23:33.506237052 +0200
++++ b/drivers/media/i2c/s5kgw1p.c	2026-09-27 12:23:33.556237327 +0200
+@@ -60,6 +60,7 @@
+ 	const struct cci_reg_sequence *regs;
+ 	unsigned int num_regs;
+ 	bool fast_1g;		/* also write s5kgw1p_fast_1g */
++	struct v4l2_rect crop;	/* analogue crop, 2x2-binned array units */
+ };
+ 
+ /*
+@@ -83,6 +84,8 @@
+ 		.pixel_rate = 1440000000,
+ 		.regs = s5kgw1p_mode_regs,
+ 		.num_regs = ARRAY_SIZE(s5kgw1p_mode_regs),
++		/* x 0x0010..0x242f, y 0x0000..0x1b1f: the whole array */
++		.crop = { 0, 0, 4624, 3468 },
+ 	},
+ 	{	/*
+ 		 * vendor mode[2]: 4x4 binned 16:9 crop (8000x4512), vendor
+@@ -93,6 +96,8 @@
+ 		.regs = s5kgw1p_mode_fast_regs,
+ 		.num_regs = ARRAY_SIZE(s5kgw1p_mode_fast_regs),
+ 		.fast_1g = true,
++		/* x 0x0280..0x21bf, y 0x04c0..0x165f, relative to mode[1] */
++		.crop = { 312, 608, 4000, 2256 },
+ 	},
+ };
+ 
+@@ -322,6 +327,39 @@
+ 	return 0;
+ }
+ 
++/*
++ * Selection rectangles in 2x2-binned units, the largest format (4624x3468)
++ * being the whole active array, so that user space can tell which part of
++ * the field of view a mode covers (lens shading, digital zoom).
++ */
++static int s5kgw1p_get_selection(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_selection *sel)
++{
++	struct s5kgw1p *s = to_s5kgw1p(sd);
++	const struct s5kgw1p_mode *mode = s->mode;
++	const struct v4l2_mbus_framefmt *fmt;
++
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++		if (sel->which == V4L2_SUBDEV_FORMAT_TRY) {
++			fmt = v4l2_subdev_state_get_format(state, 0);
++			mode = v4l2_find_nearest_size(s5kgw1p_modes,
++						      ARRAY_SIZE(s5kgw1p_modes),
++						      width, height,
++						      fmt->width, fmt->height);
++		}
++		sel->r = mode->crop;
++		return 0;
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r = s5kgw1p_modes[0].crop;
++		return 0;
++	}
++	return -EINVAL;
++}
++
+ static int s5kgw1p_set_fmt(struct v4l2_subdev *sd,
+ 			   struct v4l2_subdev_state *state,
+ 			   struct v4l2_subdev_format *fmt)
+@@ -398,6 +436,7 @@
+ 	.enum_frame_size = s5kgw1p_enum_frame_size,
+ 	.get_fmt = s5kgw1p_get_fmt,
+ 	.set_fmt = s5kgw1p_set_fmt,
++	.get_selection = s5kgw1p_get_selection,
+ };
+ 
+ static const struct v4l2_subdev_ops s5kgw1p_subdev_ops = {

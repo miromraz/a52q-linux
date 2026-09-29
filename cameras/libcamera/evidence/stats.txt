@@ -1,0 +1,12 @@
+uw.ppm 1024x768 mean RGB 3.6 6.0 2.9 centre 10.4 corners 1.6 2.1 1.9 13.4 p99 19
+uw-bars.ppm 1024x768 mean RGB 144.8 135.3 139.0 centre 114.8 corners 255.0 31.5 255.0 31.5 p99 255
+main.ppm 1280x960 mean RGB 1.6 1.3 1.8 centre 1.5 corners 1.7 1.6 1.4 1.8 p99 12
+main-bars.ppm 1280x960 mean RGB 169.8 169.6 128.3 centre 126.8 corners 255.0 86.0 255.0 85.7 p99 255
+front.ppm 1280x960 mean RGB 0.4 0.3 0.3 centre 0.4 corners 0.3 0.2 0.4 0.3 p99 9
+front-bars.ppm 1280x960 mean RGB 139.7 138.7 137.6 centre 126.6 corners 255.0 0.0 255.0 0.0 p99 255
+depth.ppm 1280x720 mean RGB 9.3 8.8 8.6 centre 8.9 corners 8.4 8.8 9.3 8.8 p99 25
+depth-bars.ppm 1280x960 mean RGB 123.9 124.2 123.8 centre 140.4 corners 105.8 150.9 64.4 140.9 p99 254
+macro.ppm 1280x960 mean RGB 8.8 9.8 9.3 centre 9.3 corners 9.5 9.1 10.0 9.9 p99 26
+macro-bars.ppm 1280x960 mean RGB 123.9 124.2 123.8 centre 140.4 corners 105.8 150.9 64.4 140.9 p99 254
+grey-nofade.ppm 1024x768 mean RGB 16.4 16.0 14.3 centre 6.9 corners 30.2 29.9 30.4 29.9 p99 32
+grey-nolsc.ppm 1024x768 mean RGB 6.0 6.0 6.0 centre 6.0 corners 6.0 6.0 6.0 6.0 p99 6

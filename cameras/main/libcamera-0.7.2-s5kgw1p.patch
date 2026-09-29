@@ -1,0 +1,51 @@
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+--- a/src/ipa/libipa/camera_sensor_helper.cpp	2026-09-27 11:26:46.731833135 +0200
++++ b/src/ipa/libipa/camera_sensor_helper.cpp	2026-09-27 11:26:46.781833381 +0200
+@@ -827,6 +827,22 @@
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("ov13858", CameraSensorHelperOv13858)
+ 
++class CameraSensorHelperS5kgw1p : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperS5kgw1p()
++	{
++		/* Vendor sensor module: black level 64 at 10 bits. */
++		blackLevel_ = 4096;
++		/*
++		 * Vendor CamX sensor library: analogue gain code = gain * 32
++		 * (0x20 = 1x .. 0x400 = 32x), verified linear on the device.
++		 */
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 32 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("s5kgw1p", CameraSensorHelperS5kgw1p)
++
+ class CameraSensorHelperVd55g1 : public CameraSensorHelper
+ {
+ public:
+diff --git a/src/libcamera/sensor/camera_sensor_properties.cpp b/src/libcamera/sensor/camera_sensor_properties.cpp
+--- a/src/libcamera/sensor/camera_sensor_properties.cpp	2026-09-27 11:26:46.735166485 +0200
++++ b/src/libcamera/sensor/camera_sensor_properties.cpp	2026-09-27 11:26:46.781833381 +0200
+@@ -503,6 +503,21 @@
+ 			},
+ 			.sensorDelays = { },
+ 		} },
++		{ "s5kgw1p", {
++			/*
++			 * 0.8 um pixels; the driver only exposes the 2x2-binned
++			 * 4624x3468 array, so report the binned 1.6 um cell.
++			 */
++			.unitCellSize = { 1600, 1600 },
++			.testPatternModes = {
++				{ controls::draft::TestPatternModeOff, 0 },
++				{ controls::draft::TestPatternModeSolidColor, 1 },
++				{ controls::draft::TestPatternModeColorBars, 2 },
++				{ controls::draft::TestPatternModeColorBarsFadeToGray, 3 },
++				{ controls::draft::TestPatternModePn9, 4 },
++			},
++			.sensorDelays = { },
++		} },
+ 		{ "vd55g1", {
+ 			.unitCellSize = { 2160, 2160 },
+ 			.testPatternModes = {

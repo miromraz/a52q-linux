@@ -1,0 +1,56 @@
+arm64: dts: qcom: sm7125-samsung-a52q: front camera rotation 90, OTP EEPROM
+
+Applies with patch -p1 on top of the current (uncommitted) a52q DTS.
+
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts	2026-09-27 11:27:37.675414997 +0200
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts	2026-09-27 11:27:37.748748686 +0200
+@@ -383,6 +383,24 @@
+ 	status = "okay";
+ };
+ 
++/*
++ * Front camera module OTP EEPROM (ON Semi N24S64B, 64 Kbit). Stock DT puts it
++ * on qupv3_se9_i2c (GPIO46/47) at 0x51, powered by the sensor vio rail, so it
++ * only answers while the sensor is powered (streaming).
++ */
++&i2c9 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	eeprom@51 {
++		compatible = "atmel,24c64";
++		reg = <0x51>;
++		pagesize = <32>;
++		read-only;
++		vcc-supply = <&vreg_cam_l3>;
++	};
++};
++
+ &cci1_i2c0 {
+ 	/* front: Sony IMX616, 4-lane RAW10, CSIPHY2, MCLK 24 MHz. */
+ 	camera@1a {
+@@ -401,7 +419,12 @@
+ 		pinctrl-names = "default";
+ 		power-domains = <&camcc TITAN_TOP_GDSC>;
+ 		orientation = <0>;
+-		rotation = <270>;
++		/*
++		 * Stock sensor-position-roll 270 = Android SENSOR_ORIENTATION
++		 * 270 (clockwise); libcamera's rotation is counter-clockwise,
++		 * Android orientation = (360 - rotation) % 360.
++		 */
++		rotation = <90>;
+ 
+ 		port {
+ 			cam_imx616_ep: endpoint {
+--- a/arch/arm64/configs/a52q_defconfig	2026-09-27 11:27:59.872188708 +0200
++++ b/arch/arm64/configs/a52q_defconfig	2026-09-27 11:27:59.882188756 +0200
+@@ -2013,7 +2013,7 @@
+ #
+ # EEPROM support
+ #
+-# CONFIG_EEPROM_AT24 is not set
++CONFIG_EEPROM_AT24=m
+ # CONFIG_EEPROM_AT25 is not set
+ # CONFIG_EEPROM_MAX6875 is not set
+ CONFIG_EEPROM_93CX6=y

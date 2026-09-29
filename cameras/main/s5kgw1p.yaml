@@ -1,0 +1,47 @@
+# SPDX-License-Identifier: CC0-1.0
+#
+# libcamera 0.7.2 soft-ISP tuning for the Samsung S5KGW1P (Galaxy A52 5G main
+# camera), derived from the stock CamX tuning com.samsung.tuned.lsi_s5kgw1p.bin
+# (A525FXXUAFXL2). Install as /usr/share/libcamera/ipa/simple/s5kgw1p.yaml, or
+# test with LIBCAMERA_IPA_CONFIG_PATH=<dir> and <dir>/simple/s5kgw1p.yaml.
+%YAML 1.1
+---
+version: 1
+algorithms:
+  # Pedestal 64 at 10 bit (sensor module black level 64 on R/Gr/Gb/B; measured
+  # 63.96 on dark frames), given here as a 16-bit value.
+  - BlackLevel:
+      blackLevel: 4096
+  - Awb:
+  # cc13_ipe colour correction, AEC trigger "lux index 335-360" (normal indoor
+  # light), one matrix per stock CCT region; ct = region centre. Row-major
+  # RGB, rows sum to 1.0.
+  - Ccm:
+      ccms:
+        - ct: 2300
+          ccm: [ 2.0069, -0.7609, -0.2459,
+                -0.3133,  1.1661,  0.1472,
+                -0.3106, -1.0057,  2.3163 ]
+        - ct: 3000
+          ccm: [ 1.6651, -0.5610, -0.1041,
+                -0.2559,  1.1343,  0.1217,
+                -0.3612, -0.4542,  1.8154 ]
+        - ct: 3650
+          ccm: [ 1.8923, -0.7976, -0.0947,
+                -0.2619,  1.3089, -0.0470,
+                -0.0431, -0.5641,  1.6072 ]
+        - ct: 4350
+          ccm: [ 1.8673, -0.7476, -0.1197,
+                -0.1869,  1.2339, -0.0470,
+                -0.0181, -0.6141,  1.6322 ]
+        - ct: 5750
+          ccm: [ 1.8914, -0.8953,  0.0039,
+                -0.3266,  1.5954, -0.2688,
+                -0.0146, -0.5760,  1.5906 ]
+        - ct: 7000
+          ccm: [ 1.9725, -0.9448, -0.0276,
+                -0.1660,  1.3250, -0.1590,
+                 0.0105, -0.9775,  1.9669 ]
+  - Adjust:
+  - Agc:
+...

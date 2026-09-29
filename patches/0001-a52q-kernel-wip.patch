@@ -1,0 +1,494 @@
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index 08895277c..d91260e80 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -14,6 +14,24 @@ / {
+ 	compatible = "samsung,a52q", "qcom,sm7125";
+ 	qcom,board-id = <0x22 0x6>;
+ 
++	/* NFC PVDD LDO (downstream sec-nfc,pvdd-gpio); s3fwrn5 takes no supply */
++	vreg_nfc_pvdd: regulator-nfc-pvdd {
++		compatible = "regulator-fixed";
++		regulator-name = "nfc_pvdd";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		gpio = <&tlmm 68 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++		regulator-always-on;
++	};
++
++	/* AP sleep state for the ADSP sensor framework, see smp2p_sleepstate.c */
++	smp2p-sleepstate {
++		compatible = "qcom,smp2p-sleepstate";
++		qcom,smem-states = <&sleepstate_smp2p_out 0>;
++		interrupts-extended = <&sleepstate_smp2p_in 0 IRQ_TYPE_EDGE_RISING>;
++	};
++
+ 	reserved-memory {
+ 		#address-cells = <2>;
+ 		#size-cells = <2>;
+@@ -71,3 +89,56 @@ &sound {
+ &venus {
+ 	firmware-name = "qcom/sm7125/a52q/venus.mbn";
+ };
++
++&i2c0 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	/* Samsung S3NRN4V (downstream "sec-nfc", bootloader_ver 6) */
++	nfc@27 {
++		compatible = "samsung,s3fwrn5-i2c";
++		reg = <0x27>;
++
++		interrupts-extended = <&tlmm 37 IRQ_TYPE_EDGE_RISING>;
++		en-gpios = <&tlmm 12 GPIO_ACTIVE_HIGH>;
++		wake-gpios = <&tlmm 36 GPIO_ACTIVE_HIGH>;
++
++		pinctrl-0 = <&nfc_default>;
++		pinctrl-names = "default";
++	};
++};
++
++&qupv3_id_0 {
++	status = "okay";
++};
++
++&tlmm {
++	nfc_default: nfc-default-state {
++		int-pins {
++			pins = "gpio31", "gpio37";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-pull-down;
++		};
++
++		ctrl-pins {
++			pins = "gpio12", "gpio36";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++	};
++};
++
++&{/smp2p-lpass} {
++	sleepstate_smp2p_out: sleepstate-out {
++		qcom,entry-name = "sleepstate";
++		#qcom,smem-state-cells = <1>;
++	};
++
++	sleepstate_smp2p_in: sleepstate-in {
++		qcom,entry-name = "sleepstate_see";
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++};
+diff --git a/arch/arm64/configs/a52q_defconfig b/arch/arm64/configs/a52q_defconfig
+index 7629e54da..d7d5a1593 100644
+--- a/arch/arm64/configs/a52q_defconfig
++++ b/arch/arm64/configs/a52q_defconfig
+@@ -6612,6 +6612,7 @@ CONFIG_QCOM_SMEM=y
+ CONFIG_QCOM_SMD_RPM=y
+ CONFIG_QCOM_SMEM_STATE=y
+ CONFIG_QCOM_SMP2P=y
++CONFIG_QCOM_SMP2P_SLEEPSTATE=m
+ CONFIG_QCOM_SMSM=y
+ CONFIG_QCOM_SOCINFO=y
+ CONFIG_QCOM_SPM=m
+diff --git a/drivers/power/supply/sm5714-fg.c b/drivers/power/supply/sm5714-fg.c
+index 3c2071109..f5ec0f6da 100644
+--- a/drivers/power/supply/sm5714-fg.c
++++ b/drivers/power/supply/sm5714-fg.c
+@@ -37,8 +37,6 @@
+ #define SM5714_FG_ADDR_SRAM_CURRENT_AVG	  0x09
+ #define SM5714_FG_ADDR_SRAM_STATE         0x15
+ 
+-#define FIXED_POINT_8_8_EXTEND_TO_INT(fp_value, extend_orders) ((((fp_value & 0xff00) >> 8) * extend_orders) + (((fp_value & 0xff) * extend_orders) / 256))
+-
+ struct sm5714_fg {
+ 	struct power_supply *psy;
+ 	struct i2c_client *i2c;
+@@ -73,59 +71,60 @@ static int sm5714_fg_get_status(int *status)
+ 	return ret;
+ }
+ 
++static int sm5714_fg_read_sram(struct sm5714_fg *drv, u8 addr)
++{
++	int ret;
++
++	ret = i2c_smbus_write_word_data(drv->i2c, SM5714_FG_REG_SRAM_RADDR, addr);
++	if (ret < 0)
++		return ret;
++
++	return i2c_smbus_read_word_data(drv->i2c, SM5714_FG_REG_SRAM_RDATA);
++}
++
++/* SRAM words are sign-magnitude: bit 15 is the sign. */
++static int sm5714_fg_sign(int raw, int mag)
++{
++	return (raw & 0x8000) ? -mag : mag;
++}
++
+ static int sm5714_fg_get_property(struct power_supply *psy,
+ 				   enum power_supply_property psp,
+ 				   union power_supply_propval *val)
+ {
+-	int error;
+-	unsigned int value;
+-	struct sm5714_fg *drv;
++	struct sm5714_fg *drv = power_supply_get_drvdata(psy);
++	int raw;
+ 
+-	drv = power_supply_get_drvdata(psy);
+ 	switch (psp) {
+ 	case POWER_SUPPLY_PROP_STATUS:
+-		error = sm5714_fg_get_status(&value);
+-		val->intval = value;
+-		break;
++		return sm5714_fg_get_status(&val->intval);
+ 	case POWER_SUPPLY_PROP_TEMP:
+-		i2c_smbus_write_word_data(drv->i2c, SM5714_FG_REG_SRAM_RADDR, SM5714_FG_ADDR_SRAM_TEMPERATURE);
+-		value = i2c_smbus_read_word_data(drv->i2c, SM5714_FG_REG_SRAM_RDATA);
+-		if (value < 0)
+-			return value;
+-		// Convert to decicelcius
+-		value &= 0x7fff;
+-		value = FIXED_POINT_8_8_EXTEND_TO_INT((unsigned short)value, 10);
+-		val->intval = value;
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_TEMPERATURE);
++		if (raw < 0)
++			return raw;
++		/* decidegrees C, scale from the vendor driver */
++		val->intval = sm5714_fg_sign(raw, ((raw & 0x7fff) * 10 * 2989) >> 19);
+ 		break;
+ 	case POWER_SUPPLY_PROP_CAPACITY:
+-		i2c_smbus_write_word_data(drv->i2c, SM5714_FG_REG_SRAM_RADDR, SM5714_FG_ADDR_SRAM_SOC);
+-		value = i2c_smbus_read_word_data(drv->i2c, SM5714_FG_REG_SRAM_RDATA);
+-		if (value < 0)
+-			return value;
+-		// Convert to %
+-		value = FIXED_POINT_8_8_EXTEND_TO_INT((unsigned short)value, 10);
+-		value /= 10;
+-		val->intval = value;
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_SOC);
++		if (raw < 0)
++			return raw;
++		/* 8.8 fixed point percent */
++		val->intval = min((raw * 10) >> 8, 1000) / 10;
+ 		break;
+ 	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
+-		i2c_smbus_write_word_data(drv->i2c, SM5714_FG_REG_SRAM_RADDR, SM5714_FG_ADDR_SRAM_OCV);
+-		value = i2c_smbus_read_word_data(drv->i2c, SM5714_FG_REG_SRAM_RDATA);
+-		if (value < 0)
+-			return value;
+-		// Convert to uV
+-		value &= 0x7ff;
+-		value = FIXED_POINT_8_8_EXTEND_TO_INT((unsigned short)value, 1000000);
+-		val->intval = value;
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_VBAT);
++		if (raw < 0)
++			return raw;
++		/* mV = 2700 +/- raw * 10 / 109 */
++		val->intval = (2700 + sm5714_fg_sign(raw, ((raw & 0x7fff) * 10) / 109)) * 1000;
+ 		break;
+ 	case POWER_SUPPLY_PROP_CURRENT_NOW:
+-		i2c_smbus_write_word_data(drv->i2c, SM5714_FG_REG_SRAM_RADDR, SM5714_FG_ADDR_SRAM_CURRENT);
+-		value = i2c_smbus_read_word_data(drv->i2c, SM5714_FG_REG_SRAM_RDATA);
+-		if (value < 0)
+-			return value;
+-		// Convert to mA
+-		value &= 0x7ff;
+-		value = FIXED_POINT_8_8_EXTEND_TO_INT((unsigned short)value, 1000);
+-		val->intval = value;
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_CURRENT);
++		if (raw < 0)
++			return raw;
++		/* mA = raw * 1000 / 2044, negative while discharging */
++		val->intval = sm5714_fg_sign(raw, ((raw & 0x7fff) * 1000) / 2044) * 1000;
+ 		break;
+ 	default:
+ 		return -EINVAL;
+diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
+index 58e63cf00..3a081ded5 100644
+--- a/drivers/soc/qcom/Kconfig
++++ b/drivers/soc/qcom/Kconfig
+@@ -209,6 +209,14 @@ config QCOM_SMP2P
+ 	  Say yes here to support the Qualcomm Shared Memory Point to Point
+ 	  protocol.
+ 
++config QCOM_SMP2P_SLEEPSTATE
++	tristate "Qualcomm SMP2P AP sleep state notifier"
++	depends on QCOM_SMP2P
++	help
++	  Publish whether the application processor is suspended on the
++	  "sleepstate" SMP2P entry. The ADSP sensor framework (SEE) on some
++	  platforms, e.g. SM7125, faults on system suspend without it.
++
+ config QCOM_SMSM
+ 	tristate "Qualcomm Shared Memory State Machine"
+ 	depends on MAILBOX
+diff --git a/drivers/soc/qcom/Makefile b/drivers/soc/qcom/Makefile
+index acbca2ab5..529c2e569 100644
+--- a/drivers/soc/qcom/Makefile
++++ b/drivers/soc/qcom/Makefile
+@@ -27,6 +27,7 @@ obj-$(CONFIG_QCOM_SMEM) +=	smem.o
+ obj-$(CONFIG_QCOM_SMEM_STATE) += smem_state.o
+ CFLAGS_smp2p.o := -I$(src)
+ obj-$(CONFIG_QCOM_SMP2P)	+= smp2p.o
++obj-$(CONFIG_QCOM_SMP2P_SLEEPSTATE)	+= smp2p_sleepstate.o
+ obj-$(CONFIG_QCOM_SMSM)	+= smsm.o
+ obj-$(CONFIG_QCOM_SOCINFO)	+= socinfo.o
+ obj-$(CONFIG_QCOM_SPM)		+= spm.o
+diff --git a/drivers/soc/qcom/smp2p_sleepstate.c b/drivers/soc/qcom/smp2p_sleepstate.c
+new file mode 100644
+index 000000000..eb49ca1bd
+--- /dev/null
++++ b/drivers/soc/qcom/smp2p_sleepstate.c
+@@ -0,0 +1,125 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Tell the ADSP whether the application processor is suspended.
++ *
++ * The sensor framework (SEE) on the ADSP watches the AP's "sleepstate" SMP2P
++ * entry and batches or wakes accordingly. Without it, SEE's remote processor
++ * state thread faults when the AP enters system sleep and takes the whole
++ * ADSP (audio included) down with it. The ADSP can in turn raise its
++ * "sleepstate_see" entry to ask for the AP to stay up briefly.
++ *
++ * Based on the Qualcomm downstream smp2p_sleepstate driver.
++ * Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
++ */
++#include <linux/bits.h>
++#include <linux/interrupt.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/platform_device.h>
++#include <linux/pm_wakeup.h>
++#include <linux/soc/qcom/smem_state.h>
++#include <linux/suspend.h>
++
++#define SLEEPSTATE_AP_AWAKE	BIT(12)
++
++struct sleepstate {
++	struct qcom_smem_state *state;
++	struct wakeup_source *ws;
++	struct notifier_block pm_nb;
++};
++
++static int sleepstate_pm_notifier(struct notifier_block *nb,
++				  unsigned long event, void *unused)
++{
++	struct sleepstate *ss = container_of(nb, struct sleepstate, pm_nb);
++
++	switch (event) {
++	case PM_SUSPEND_PREPARE:
++		qcom_smem_state_update_bits(ss->state, SLEEPSTATE_AP_AWAKE, 0);
++		break;
++	case PM_POST_SUSPEND:
++		qcom_smem_state_update_bits(ss->state, SLEEPSTATE_AP_AWAKE,
++					    SLEEPSTATE_AP_AWAKE);
++		break;
++	}
++
++	return NOTIFY_DONE;
++}
++
++static irqreturn_t sleepstate_see_irq(int irq, void *data)
++{
++	struct sleepstate *ss = data;
++
++	__pm_wakeup_event(ss->ws, 200);
++
++	return IRQ_HANDLED;
++}
++
++static void sleepstate_unregister(void *data)
++{
++	struct sleepstate *ss = data;
++
++	unregister_pm_notifier(&ss->pm_nb);
++	wakeup_source_unregister(ss->ws);
++}
++
++static int smp2p_sleepstate_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct sleepstate *ss;
++	unsigned int bit;
++	int irq, ret;
++
++	ss = devm_kzalloc(dev, sizeof(*ss), GFP_KERNEL);
++	if (!ss)
++		return -ENOMEM;
++
++	ss->state = devm_qcom_smem_state_get(dev, NULL, &bit);
++	if (IS_ERR(ss->state))
++		return dev_err_probe(dev, PTR_ERR(ss->state),
++				     "failed to get sleepstate smem state\n");
++
++	irq = platform_get_irq(pdev, 0);
++	if (irq < 0)
++		return irq;
++
++	ss->ws = wakeup_source_register(dev, "smp2p-sleepstate");
++	if (!ss->ws)
++		return -ENOMEM;
++
++	qcom_smem_state_update_bits(ss->state, SLEEPSTATE_AP_AWAKE,
++				    SLEEPSTATE_AP_AWAKE);
++
++	ss->pm_nb.notifier_call = sleepstate_pm_notifier;
++	ss->pm_nb.priority = INT_MAX;
++	ret = register_pm_notifier(&ss->pm_nb);
++	if (ret) {
++		wakeup_source_unregister(ss->ws);
++		return ret;
++	}
++
++	ret = devm_add_action_or_reset(dev, sleepstate_unregister, ss);
++	if (ret)
++		return ret;
++
++	return devm_request_threaded_irq(dev, irq, NULL, sleepstate_see_irq,
++					 IRQF_ONESHOT, "smp2p-sleepstate", ss);
++}
++
++static const struct of_device_id smp2p_sleepstate_match[] = {
++	{ .compatible = "qcom,smp2p-sleepstate" },
++	{}
++};
++MODULE_DEVICE_TABLE(of, smp2p_sleepstate_match);
++
++static struct platform_driver smp2p_sleepstate_driver = {
++	.probe = smp2p_sleepstate_probe,
++	.driver = {
++		.name = "smp2p-sleepstate",
++		.of_match_table = smp2p_sleepstate_match,
++	},
++};
++module_platform_driver(smp2p_sleepstate_driver);
++
++MODULE_DESCRIPTION("Qualcomm SMP2P AP sleep state notifier");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/watchdog/qcom-wdt.c b/drivers/watchdog/qcom-wdt.c
+index 006f9c61a..921fb72b5 100644
+--- a/drivers/watchdog/qcom-wdt.c
++++ b/drivers/watchdog/qcom-wdt.c
+@@ -297,11 +297,21 @@ static int qcom_wdt_probe(struct platform_device *pdev)
+ 	return 0;
+ }
+ 
++/*
++ * A watchdog the bootloader left running (WDOG_HW_RUNNING) is pinged by the
++ * watchdog core's worker even when no one has opened it. That worker is frozen
++ * in system sleep, so stop the hardware then too, or it bites mid-suspend.
++ */
++static bool qcom_wdt_needs_pm(struct qcom_wdt *wdt)
++{
++	return watchdog_active(&wdt->wdd) || watchdog_hw_running(&wdt->wdd);
++}
++
+ static int __maybe_unused qcom_wdt_suspend(struct device *dev)
+ {
+ 	struct qcom_wdt *wdt = dev_get_drvdata(dev);
+ 
+-	if (watchdog_active(&wdt->wdd))
++	if (qcom_wdt_needs_pm(wdt))
+ 		qcom_wdt_stop(&wdt->wdd);
+ 
+ 	return 0;
+@@ -311,7 +321,7 @@ static int __maybe_unused qcom_wdt_resume(struct device *dev)
+ {
+ 	struct qcom_wdt *wdt = dev_get_drvdata(dev);
+ 
+-	if (watchdog_active(&wdt->wdd))
++	if (qcom_wdt_needs_pm(wdt))
+ 		qcom_wdt_start(&wdt->wdd);
+ 
+ 	return 0;
+diff --git a/sound/soc/codecs/tas2562.c b/sound/soc/codecs/tas2562.c
+index fef7ce39f..7201a1200 100644
+--- a/sound/soc/codecs/tas2562.c
++++ b/sound/soc/codecs/tas2562.c
+@@ -306,6 +306,7 @@ static int tas2562_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+ 	struct snd_soc_component *component = dai->component;
+ 	struct tas2562_data *tas2562 = snd_soc_component_get_drvdata(component);
+ 	u8 asi_cfg_1 = 0;
++	u8 frame_start = TAS2562_TDM_CFG0_FRAME_START_HIGH_TO_LOW;
+ 	u8 tdm_rx_start_slot = 0;
+ 	int ret;
+ 
+@@ -316,11 +317,24 @@ static int tas2562_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+ 	case SND_SOC_DAIFMT_IB_NF:
+ 		asi_cfg_1 |= TAS2562_TDM_CFG1_RX_FALLING;
+ 		break;
++	case SND_SOC_DAIFMT_NB_IF:
++		frame_start = 0;
++		break;
++	case SND_SOC_DAIFMT_IB_IF:
++		asi_cfg_1 |= TAS2562_TDM_CFG1_RX_FALLING;
++		frame_start = 0;
++		break;
+ 	default:
+ 		dev_err(tas2562->dev, "ASI format Inverse is not found\n");
+ 		return -EINVAL;
+ 	}
+ 
++	ret = snd_soc_component_update_bits(component, TAS2562_TDM_CFG0,
++					    TAS2562_TDM_CFG0_FRAME_START_MASK,
++					    frame_start);
++	if (ret < 0)
++		return ret;
++
+ 	ret = snd_soc_component_update_bits(component, TAS2562_TDM_CFG1,
+ 					    TAS2562_TDM_CFG1_RX_EDGE_MASK,
+ 					    asi_cfg_1);
+diff --git a/sound/soc/codecs/tas2562.h b/sound/soc/codecs/tas2562.h
+index 55b2a1f52..b77a9aee3 100644
+--- a/sound/soc/codecs/tas2562.h
++++ b/sound/soc/codecs/tas2562.h
+@@ -54,6 +54,8 @@
+ #define TAS2562_TDM_CFG1_RX_EDGE_MASK	BIT(0)
+ #define TAS2562_TDM_CFG1_RX_FALLING	1
+ 
++#define TAS2562_TDM_CFG0_FRAME_START_MASK	BIT(0)
++#define TAS2562_TDM_CFG0_FRAME_START_HIGH_TO_LOW	BIT(0)
+ #define TAS2562_TDM_CFG0_RAMPRATE_MASK		BIT(5)
+ #define TAS2562_TDM_CFG0_RAMPRATE_44_1		BIT(5)
+ #define TAS2562_TDM_CFG0_SAMPRATE_MASK		GENMASK(3, 1)
+diff --git a/sound/soc/qcom/sm8250.c b/sound/soc/qcom/sm8250.c
+index 45e0c33fc..7f71f843e 100644
+--- a/sound/soc/qcom/sm8250.c
++++ b/sound/soc/qcom/sm8250.c
+@@ -53,6 +53,7 @@ static int sm8250_snd_startup(struct snd_pcm_substream *substream)
+ 	struct snd_soc_pcm_runtime *rtd = snd_soc_substream_to_rtd(substream);
+ 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+ 	struct snd_soc_dai *codec_dai = snd_soc_rtd_to_codec(rtd, 0);
++	int i;
+ 
+ 	switch (cpu_dai->id) {
+ 	case PRIMARY_MI2S_RX:
+@@ -79,6 +80,22 @@ static int sm8250_snd_startup(struct snd_pcm_substream *substream)
+ 		snd_soc_dai_set_fmt(cpu_dai, fmt);
+ 		snd_soc_dai_set_fmt(codec_dai, codec_dai_fmt);
+ 		break;
++	case QUINARY_MI2S_RX:
++		/*
++		 * Two TAS2562 share the line (Galaxy A52). They default to 32-bit
++		 * slots and flag a TDM clock error on the 16-bit MI2S frame, and
++		 * with their default frame start the channels come out swapped.
++		 */
++		codec_dai_fmt |= SND_SOC_DAIFMT_NB_IF | SND_SOC_DAIFMT_I2S;
++		snd_soc_dai_set_sysclk(cpu_dai,
++			Q6AFE_LPASS_CLK_ID_QUI_MI2S_IBIT,
++			MI2S_BCLK_RATE, SNDRV_PCM_STREAM_PLAYBACK);
++		snd_soc_dai_set_fmt(cpu_dai, fmt);
++		for_each_rtd_codec_dais(rtd, i, codec_dai) {
++			snd_soc_dai_set_fmt(codec_dai, codec_dai_fmt);
++			snd_soc_dai_set_tdm_slot(codec_dai, 0x3, 0x3, 2, 16);
++		}
++		break;
+ 	default:
+ 		break;
+ 	}

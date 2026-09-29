@@ -1,0 +1,70 @@
+From 53bb61427846d203af82f63051138dc28359ed1c Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:04:41 +0200
+Subject: [PATCH 02/12] libcamera: Add Samsung S5KGW1P sensor helper and
+ properties
+
+Galaxy A52 5G main camera. Black level 64 at 10 bits (vendor sensor
+module, measured 63.96), analogue gain code = gain * 32 (0x20 = 1x ..
+0x400 = 32x) from the vendor CamX sensor library, verified linear on the
+device. SMIA test pattern menu of the kernel driver.
+
+From cameras/main/libcamera-0.7.2-s5kgw1p.patch.
+---
+ src/ipa/libipa/camera_sensor_helper.cpp          | 16 ++++++++++++++++
+ .../sensor/camera_sensor_properties.cpp          | 15 +++++++++++++++
+ 2 files changed, 31 insertions(+)
+
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index 92d0833..c2848bb 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -840,6 +840,22 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("s5k3l6xx", CameraSensorHelperS5k3l6xx)
+ 
++class CameraSensorHelperS5kgw1p : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperS5kgw1p()
++	{
++		/* Vendor sensor module: black level 64 at 10 bits. */
++		blackLevel_ = 4096;
++		/*
++		 * Vendor CamX sensor library: analogue gain code = gain * 32
++		 * (0x20 = 1x .. 0x400 = 32x), verified linear on the device.
++		 */
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 32 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("s5kgw1p", CameraSensorHelperS5kgw1p)
++
+ class CameraSensorHelperVd55g1 : public CameraSensorHelper
+ {
+ public:
+diff --git a/src/libcamera/sensor/camera_sensor_properties.cpp b/src/libcamera/sensor/camera_sensor_properties.cpp
+index ec7de9d..26f785c 100644
+--- a/src/libcamera/sensor/camera_sensor_properties.cpp
++++ b/src/libcamera/sensor/camera_sensor_properties.cpp
+@@ -514,6 +514,21 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
+ 			},
+ 			.sensorDelays = { },
+ 		} },
++		{ "s5kgw1p", {
++			/*
++			 * 0.8 um pixels; the driver only exposes the 2x2-binned
++			 * 4624x3468 array, so report the binned 1.6 um cell.
++			 */
++			.unitCellSize = { 1600, 1600 },
++			.testPatternModes = {
++				{ controls::draft::TestPatternModeOff, 0 },
++				{ controls::draft::TestPatternModeSolidColor, 1 },
++				{ controls::draft::TestPatternModeColorBars, 2 },
++				{ controls::draft::TestPatternModeColorBarsFadeToGray, 3 },
++				{ controls::draft::TestPatternModePn9, 4 },
++			},
++			.sensorDelays = { },
++		} },
+ 		{ "vd55g1", {
+ 			.unitCellSize = { 2160, 2160 },
+ 			.testPatternModes = {

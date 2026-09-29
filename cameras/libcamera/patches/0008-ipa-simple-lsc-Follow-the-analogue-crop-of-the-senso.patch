@@ -1,0 +1,115 @@
+From 36e1e24ba2ec19d046894506eca67cd2747d5251 Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:06:20 +0200
+Subject: [PATCH 08/12] ipa: simple: lsc: Follow the analogue crop of the
+ sensor mode
+
+The tuning mesh describes the shading over the whole field of view, but
+sensor modes that crop (16:9 or windowed modes) only see part of it:
+with the nodes stretched over the cropped frame, the corners of such a
+frame got the correction meant for the corners of the full array.
+
+Resample the mesh over the analogue crop reported for the configured
+mode at configure time, keeping the node count, so the debayer keeps
+treating the mesh as spanning the frame.
+---
+ src/ipa/simple/algorithms/lsc.cpp | 56 +++++++++++++++++++++++++++++--
+ src/ipa/simple/algorithms/lsc.h   |  2 ++
+ 2 files changed, 55 insertions(+), 3 deletions(-)
+
+diff --git a/src/ipa/simple/algorithms/lsc.cpp b/src/ipa/simple/algorithms/lsc.cpp
+index f216a17..42e59f0 100644
+--- a/src/ipa/simple/algorithms/lsc.cpp
++++ b/src/ipa/simple/algorithms/lsc.cpp
+@@ -20,7 +20,9 @@ LOG_DEFINE_CATEGORY(IPASoftLsc)
+  * \brief Static lens shading correction mesh
+  *
+  * Tuning data:
+- *   grid: [ columns, rows ]    mesh size, nodes span the whole sensor frame
++ *   grid: [ columns, rows ]    mesh size, nodes span the sensor active area
++ *                              (the full field of view); modes that crop
++ *                              get the matching part of the mesh
+  *   r, g, b: [ ... ]           columns * rows gains each, row-major, in the
+  *                              orientation of the raw frame
+  *   fadeGain: [ start, end ]   optional: fade the correction out between
+@@ -70,9 +72,57 @@ int Lsc::init([[maybe_unused]] IPAContext &context, const ValueNode &tuningData)
+ 	return 0;
+ }
+ 
+-int Lsc::configure([[maybe_unused]] IPAContext &context,
++int Lsc::configure(IPAContext &context,
+ 		   [[maybe_unused]] const IPAConfigInfo &configInfo)
+ {
++	/*
++	 * The tuning mesh covers the active area, the frame covers the
++	 * analogue crop of the configured mode. Resample the mesh over the
++	 * crop so that its nodes span the frame again (bilinear, same node
++	 * count). Binning does not matter, both rectangles are in pixel
++	 * array units.
++	 */
++	const IPACameraSensorInfo &info = context.sensorInfo;
++	const Size &area = info.activeAreaSize;
++	const Rectangle &crop = info.analogCrop;
++	double x0 = 0.0, y0 = 0.0, sx = 1.0, sy = 1.0;
++
++	if (!area.isNull() && !crop.isNull() &&
++	    crop.x >= 0 && crop.y >= 0 &&
++	    static_cast<unsigned int>(crop.x) + crop.width <= area.width &&
++	    static_cast<unsigned int>(crop.y) + crop.height <= area.height) {
++		x0 = static_cast<double>(crop.x) / area.width;
++		y0 = static_cast<double>(crop.y) / area.height;
++		sx = static_cast<double>(crop.width) / area.width;
++		sy = static_cast<double>(crop.height) / area.height;
++	}
++
++	LOG(IPASoftLsc, Debug)
++		<< "Mesh window " << crop << " of " << area << ": x "
++		<< x0 << "+" << sx << " y " << y0 << "+" << sy;
++
++	mesh_.resize(gains_.size());
++	for (unsigned int j = 0; j < height_; j++) {
++		double v = (y0 + sy * j / (height_ - 1)) * (height_ - 1);
++		unsigned int r = std::min(static_cast<unsigned int>(v), height_ - 2);
++		double fy = v - r;
++
++		for (unsigned int i = 0; i < width_; i++) {
++			double u = (x0 + sx * i / (width_ - 1)) * (width_ - 1);
++			unsigned int c = std::min(static_cast<unsigned int>(u), width_ - 2);
++			double fx = u - c;
++			RGB<float> &out = mesh_[j * width_ + i];
++
++			for (unsigned int k = 0; k < 3; k++) {
++				double top = gains_[r * width_ + c][k] * (1 - fx) +
++					     gains_[r * width_ + c + 1][k] * fx;
++				double bot = gains_[(r + 1) * width_ + c][k] * (1 - fx) +
++					     gains_[(r + 1) * width_ + c + 1][k] * fx;
++				out[k] = top * (1 - fy) + bot * fy;
++			}
++		}
++	}
++
+ 	uploaded_ = false;
+ 	return 0;
+ }
+@@ -84,7 +134,7 @@ void Lsc::prepare(IPAContext &context,
+ {
+ 	/* The mesh lives in the shared parameters, write it once per session. */
+ 	if (!uploaded_) {
+-		std::copy(gains_.begin(), gains_.end(), params->lscGains.begin());
++		std::copy(mesh_.begin(), mesh_.end(), params->lscGains.begin());
+ 		params->lscWidth = width_;
+ 		params->lscHeight = height_;
+ 		params->lscSeq = ++seq_;
+diff --git a/src/ipa/simple/algorithms/lsc.h b/src/ipa/simple/algorithms/lsc.h
+index f079a90..97fd783 100644
+--- a/src/ipa/simple/algorithms/lsc.h
++++ b/src/ipa/simple/algorithms/lsc.h
+@@ -31,6 +31,8 @@ private:
+ 	unsigned int width_ = 0;
+ 	unsigned int height_ = 0;
+ 	std::vector<RGB<float>> gains_;
++	/* gains_ resampled over the analogue crop of the configured mode */
++	std::vector<RGB<float>> mesh_;
+ 	/* Analogue gain range over which the correction fades out. */
+ 	double fadeStart_ = 0.0;
+ 	double fadeEnd_ = 0.0;

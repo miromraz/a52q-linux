@@ -1,0 +1,17 @@
+diff --git a/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml b/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
+index 73144473b..b7a3d1521 100644
+--- a/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
++++ b/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
+@@ -51,6 +51,12 @@ properties:
+     minItems: 3
+     maxItems: 6
+ 
++  interconnects:
++    maxItems: 1
++
++  interconnect-names:
++    const: cci-camnoc
++
+   interrupts:
+     maxItems: 1
+ 

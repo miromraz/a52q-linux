@@ -1,0 +1,35 @@
+old-fade-1280x960.ppm: 1280x960 from 2000x1128
+  bar boundaries [(213, 'yellow'), (426, 'cyan'), (638, 'green'), (851, 'magenta'), (1064, 'red'), (1277, 'blue')]
+  horizontal scale 0.8511; output centre = sensor x 752 (mode centre 1000)
+  fade restarts at rows [1, 436, 871] -> vertical scale 0.8496; sx/sy = 1.0017
+  output centre row sits 52 rows after a restart (centred crop expects 52)
+new-fade-1280x960.ppm: 1280x960 from 4624x3468
+  bar boundaries [(159, 'yellow'), (320, 'cyan'), (480, 'green'), (640, 'magenta'), (800, 'red'), (961, 'blue'), (1121, 'black')]
+  horizontal scale 0.2773; output centre = sensor x 2311 (mode centre 2312)
+  fade restarts at rows [141, 283, 425, 567, 709, 851] -> vertical scale 0.2773; sx/sy = 0.9999
+  output centre row sits 198 rows after a restart (centred crop expects 198)
+old-fade-3840x2160.ppm: 3840x2160 from 4624x3468
+  bar boundaries [(481, 'yellow'), (962, 'cyan'), (1442, 'green'), (1923, 'magenta'), (2404, 'red'), (2886, 'blue'), (3366, 'black')]
+  horizontal scale 0.8320; output centre = sensor x 2308 (mode centre 2312)
+  fade restarts at rows [1, 426, 852, 1278, 1704, 2130] -> vertical scale 0.8320; sx/sy = 1.0000
+  output centre row sits 273 rows after a restart (centred crop expects 198)
+new-fade-3840x2160.ppm: 3840x2160 from 4624x3468
+  bar boundaries [(478, 'yellow'), (959, 'cyan'), (1439, 'green'), (1920, 'magenta'), (2401, 'red'), (2882, 'blue'), (3362, 'black')]
+  horizontal scale 0.8317; output centre = sensor x 2312 (mode centre 2312)
+  fade restarts at rows [63, 489, 915, 1341, 1767] -> vertical scale 0.8320; sx/sy = 0.9996
+  output centre row sits 198 rows after a restart (centred crop expects 198)
+new-fade-1000x750.ppm: 1000x750 from 4624x3468
+  bar boundaries [(124, 'yellow'), (250, 'cyan'), (375, 'green'), (500, 'magenta'), (625, 'red'), (751, 'blue'), (876, 'black')]
+  horizontal scale 0.2168; output centre = sensor x 2311 (mode centre 2312)
+  fade restarts at rows [110, 221, 332, 443, 554, 665] -> vertical scale 0.2168; sx/sy = 0.9998
+  output centre row sits 198 rows after a restart (centred crop expects 198)
+old-fade-1280x720.ppm: 1280x720 from 2000x1128
+  bar boundaries [(161, 'yellow'), (322, 'cyan'), (482, 'green'), (643, 'magenta'), (803, 'red'), (964, 'blue'), (1124, 'black')]
+  horizontal scale 0.6420; output centre = sensor x 996 (mode centre 1000)
+  fade restarts at rows [1, 329, 658] -> vertical scale 0.6416; sx/sy = 1.0006
+  output centre row sits 48 rows after a restart (centred crop expects 52)
+new-fade-1280x720.ppm: 1280x720 from 2000x1128
+  bar boundaries [(158, 'yellow'), (319, 'cyan'), (479, 'green'), (640, 'magenta'), (801, 'red'), (962, 'blue'), (1122, 'black')]
+  horizontal scale 0.6429; output centre = sensor x 1000 (mode centre 1000)
+  fade restarts at rows [327, 656] -> vertical scale 0.6426; sx/sy = 1.0004
+  output centre row sits 51 rows after a restart (centred crop expects 52)

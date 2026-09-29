@@ -1,0 +1,71 @@
+diff --git a/drivers/usb/typec/sm5714-cc.c b/drivers/usb/typec/sm5714-cc.c
+index 998b496e2..695ba9403 100644
+--- a/drivers/usb/typec/sm5714-cc.c
++++ b/drivers/usb/typec/sm5714-cc.c
+@@ -11,6 +11,7 @@
+ #include <linux/mod_devicetable.h>
+ #include <linux/module.h>
+ #include <linux/mutex.h>
++#include <linux/pm.h>
+ #include <linux/regmap.h>
+ #include <linux/regulator/consumer.h>
+ #include <linux/usb/role.h>
+@@ -37,6 +38,7 @@ struct sm5714_cc {
+ 	struct regulator *vbus;
+ 	struct mutex lock;	/* role and vbus state */
+ 	bool vbus_on;
++	int irq;
+ };
+ 
+ static void sm5714_cc_set_vbus(struct sm5714_cc *cc, bool on)
+@@ -146,10 +148,41 @@ static int sm5714_cc_probe(struct i2c_client *client)
+ 
+ 	sm5714_cc_update(cc);
+ 
+-	return devm_request_threaded_irq(dev, client->irq, NULL, sm5714_cc_irq,
++	cc->irq = client->irq;
++	i2c_set_clientdata(client, cc);
++
++	return devm_request_threaded_irq(dev, cc->irq, NULL, sm5714_cc_irq,
+ 					 IRQF_ONESHOT, "sm5714-cc", cc);
+ }
+ 
++/*
++ * The CC IRQ is a level line on the TLMM (not a wake source here). During
++ * system resume it can fire before the geni I2C controller it hangs off is
++ * runtime-resumed; the handler's I2C read then fails with -EACCES, the level
++ * stays asserted and re-fires thousands of times ("error turning SE
++ * resources:-13" storm). Mask it across sleep: the I2C adapter (our parent)
++ * resumes before this client's resume callback, so re-enabling here is safe,
++ * and any attach/detach that happened while masked is latched and serviced
++ * on the first IRQ after enable.
++ */
++static int sm5714_cc_suspend(struct device *dev)
++{
++	struct sm5714_cc *cc = dev_get_drvdata(dev);
++
++	disable_irq(cc->irq);
++	return 0;
++}
++
++static int sm5714_cc_resume(struct device *dev)
++{
++	struct sm5714_cc *cc = dev_get_drvdata(dev);
++
++	enable_irq(cc->irq);
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(sm5714_cc_pm_ops, sm5714_cc_suspend, sm5714_cc_resume);
++
+ static const struct of_device_id sm5714_cc_of_match[] = {
+ 	{ .compatible = "siliconmitus,sm5714-cc" },
+ 	{}
+@@ -160,6 +193,7 @@ static struct i2c_driver sm5714_cc_driver = {
+ 	.driver = {
+ 		.name = "sm5714-cc",
+ 		.of_match_table = sm5714_cc_of_match,
++		.pm = pm_sleep_ptr(&sm5714_cc_pm_ops),
+ 	},
+ 	.probe = sm5714_cc_probe,
+ };

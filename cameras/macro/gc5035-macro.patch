@@ -1,0 +1,38 @@
+From: Claude (macro camera agent) <noreply@anthropic.com>
+Subject: [PATCH] media: i2c: gc5035: name the subdev after an optional DT label
+
+The Galaxy A52 5G has two GC5035 modules (depth at 0x37, macro at 0x3f)
+with different optics and tuning. libcamera derives the sensor model, and
+from it the tuning file and sensor helper, from the part of the entity
+name before the I2C address, so both load gc5035.yaml. Let an optional
+"label" property replace the driver name in the entity name
+("gc5035_macro 22-003f") so userspace can tell the modules apart.
+Without the property nothing changes.
+
+Applies on top of the depth agent's gc5035.c work in linux-sm7125.
+---
+diff --git a/drivers/media/i2c/gc5035.c b/drivers/media/i2c/gc5035.c
+--- a/drivers/media/i2c/gc5035.c
++++ b/drivers/media/i2c/gc5035.c
+@@ -1870,6 +1870,7 @@
+ 
+ static int gc5035_probe(struct i2c_client *client)
+ {
++	const char *label;
+ 	struct device *dev = &client->dev;
+ 	struct gc5035 *gc5035;
+ 	struct v4l2_subdev *sd;
+@@ -1941,6 +1942,13 @@
+ 
+ 	sd = &gc5035->subdev;
+ 	v4l2_i2c_subdev_init(sd, client, &gc5035_subdev_ops);
++	/*
++	 * Boards can carry several GC5035 modules with different optics and
++	 * tuning. Userspace (libcamera) derives the sensor model, and so the
++	 * tuning file, from the entity name, so let DT "label" rename it.
++	 */
++	if (!device_property_read_string(dev, "label", &label))
++		v4l2_i2c_subdev_set_name(sd, client, label, NULL);
+ 	sd->internal_ops = &gc5035_internal_ops;
+ 
+ 	ret = gc5035_initialize_controls(gc5035);

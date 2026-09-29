@@ -1,0 +1,57 @@
+From 952ee55cc9548ccb2c1dd897b804cd32e5641c7c Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:04:47 +0200
+Subject: [PATCH 05/12] libcamera: Add gc5035_macro sensor helper and
+ properties
+
+The Galaxy A52 5G macro GC5035 is named "gc5035_macro" through its DT
+label so it gets its own tuning file. Give it the gc5035 sensor helper
+and static properties.
+
+From cameras/macro/libcamera-0.7.2-gc5035-macro.patch.
+---
+ src/ipa/libipa/camera_sensor_helper.cpp           |  6 ++++++
+ src/libcamera/sensor/camera_sensor_properties.cpp | 13 +++++++++++++
+ 2 files changed, 19 insertions(+)
+
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index d299386..2f8c85d 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -533,6 +533,12 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("gc5035", CameraSensorHelperGc5035)
+ 
++/* Macro GC5035 module, named "gc5035_macro" through its DT label. */
++class CameraSensorHelperGc5035Macro : public CameraSensorHelperGc5035
++{
++};
++REGISTER_CAMERA_SENSOR_HELPER("gc5035_macro", CameraSensorHelperGc5035Macro)
++
+ class CameraSensorHelperHm1246 : public CameraSensorHelper
+ {
+ public:
+diff --git a/src/libcamera/sensor/camera_sensor_properties.cpp b/src/libcamera/sensor/camera_sensor_properties.cpp
+index adda82e..bfbf4d8 100644
+--- a/src/libcamera/sensor/camera_sensor_properties.cpp
++++ b/src/libcamera/sensor/camera_sensor_properties.cpp
+@@ -145,6 +145,19 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
+ 				.hblankDelay = 2
+ 			},
+ 		} },
++		{ "gc5035_macro", {
++			.unitCellSize = { 1120, 1120 },
++			.testPatternModes = {
++				{ controls::draft::TestPatternModeOff, 0 },
++				{ controls::draft::TestPatternModeColorBars, 1 },
++			},
++			.sensorDelays = {
++				.exposureDelay = 2,
++				.gainDelay = 2,
++				.vblankDelay = 2,
++				.hblankDelay = 2
++			},
++		} },
+ 		{ "hi846", {
+ 			.unitCellSize = { 1120, 1120 },
+ 			.testPatternModes = {

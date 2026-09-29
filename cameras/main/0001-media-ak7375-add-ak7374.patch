@@ -1,0 +1,48 @@
+diff --git a/Documentation/devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml b/Documentation/devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml
+--- a/Documentation/devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml	2026-09-27 11:27:44.685448882 +0200
++++ b/Documentation/devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml	2026-09-27 11:27:44.772115968 +0200
+@@ -17,6 +17,7 @@
+   compatible:
+     enum:
+       - asahi-kasei,ak7345
++      - asahi-kasei,ak7374
+       - asahi-kasei,ak7375
+ 
+   reg:
+diff --git a/drivers/media/i2c/ak7375.c b/drivers/media/i2c/ak7375.c
+--- a/drivers/media/i2c/ak7375.c	2026-09-27 11:27:44.685448882 +0200
++++ b/drivers/media/i2c/ak7375.c	2026-09-27 11:27:44.772115968 +0200
+@@ -51,6 +51,25 @@
+ 	.power_delay_us	= 20000,
+ };
+ 
++/*
++ * AK7374 (Samsung Galaxy A52 main camera): 10-bit DAC left-aligned in the
++ * 16-bit position register, CONT 0x40 = standby. Values from the vendor CamX
++ * actuator driver (init: CONT 0x40, POSITION 500 << 6, CONT 0x00).
++ */
++static const struct ak73xx_chipdef ak7374_cdef = {
++	.reg_position	= 0x0,
++	.reg_cont	= 0x2,
++	.shift_pos	= 6,	/* 10 bits position values, need to << 6 */
++	.mode_active	= 0x0,
++	.mode_standby	= 0x40,
++	.has_standby	= true,
++	.focus_pos_max	= 1023,
++	.focus_steps	= 1,
++	.ctrl_steps	= 16,
++	.ctrl_delay_us	= 1000,
++	.power_delay_us	= 10000,
++};
++
+ static const struct ak73xx_chipdef ak7375_cdef = {
+ 	.reg_position	= 0x0,
+ 	.reg_cont	= 0x2,
+@@ -330,6 +349,7 @@
+ 
+ static const struct of_device_id ak7375_of_table[] = {
+ 	{ .compatible = "asahi-kasei,ak7345", .data = &ak7345_cdef, },
++	{ .compatible = "asahi-kasei,ak7374", .data = &ak7374_cdef, },
+ 	{ .compatible = "asahi-kasei,ak7375", .data = &ak7375_cdef, },
+ 	{ /* sentinel */ }
+ };

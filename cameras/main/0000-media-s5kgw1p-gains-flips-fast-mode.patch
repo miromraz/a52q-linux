@@ -1,0 +1,595 @@
+diff --git a/drivers/media/i2c/s5kgw1p.c b/drivers/media/i2c/s5kgw1p.c
+--- a/drivers/media/i2c/s5kgw1p.c	2026-09-27 11:43:31.542965044 +0200
++++ b/drivers/media/i2c/s5kgw1p.c	2026-09-27 11:43:56.073067816 +0200
+@@ -25,34 +25,82 @@
+ #define S5KGW1P_REG_CHIP_ID	CCI_REG16(0x0000)
+ #define S5KGW1P_CHIP_ID		0xf971
+ #define S5KGW1P_REG_MODE_SELECT	CCI_REG8(0x0100)
++#define S5KGW1P_REG_ORIENTATION	CCI_REG8(0x0101)	/* bit0 hflip, bit1 vflip */
+ #define S5KGW1P_REG_EXPOSURE	CCI_REG16(0x0202)	/* coarse integration time */
+ #define S5KGW1P_REG_ANALOG_GAIN	CCI_REG16(0x0204)
++#define S5KGW1P_REG_DIGITAL_GAIN CCI_REG16(0x020e)
+ #define S5KGW1P_REG_FLL		CCI_REG16(0x0340)	/* frame length lines */
+ #define S5KGW1P_REG_LLP		CCI_REG16(0x0342)	/* line length pck */
+ #define S5KGW1P_REG_TEST_PATTERN CCI_REG16(0x0600)
+ 
+-/* mode[1]: 4624x3468 @30fps, 3-lane RAW10, op_pixel_clock 600 MHz. */
+-#define S5KGW1P_WIDTH		4624
+-#define S5KGW1P_HEIGHT		3468
+-#define S5KGW1P_LLP_DEF		13672
+-#define S5KGW1P_FLL_DEF		3512
+ #define S5KGW1P_EXPOSURE_DEF	3000
+-#define S5KGW1P_VBLANK_MIN	(S5KGW1P_FLL_DEF - S5KGW1P_HEIGHT)
+-#define S5KGW1P_LINK_FREQ	1000000000LL	/* C-PHY, 1 GHz */
+-/* VT pixel rate: 19.2 MHz / pre_pll_div 4 * pll_mult 300 / vt_pix_clk_div 4
+- * * 4 pixels per clock = 1440 MP/s (13672*3512 / 1.44e9 = 30.0 fps).
++/*
++ * Limits from the vendor CamX sensor library (com.samsung.sensor.s5kgw1p.so,
++ * CalculateExposure/FillExposureSettings) and sensor module (minLineCount 4):
++ * analogue gain code = gain * 32, capped at 0x400 (32x) in the binned modes;
++ * digital gain code = gain * 256, capped at 0xfff; frame length is kept at
++ * least 4 lines above the coarse integration time.
+  */
+-#define S5KGW1P_PIXEL_RATE	1440000000LL
++#define S5KGW1P_EXPOSURE_MIN	4
++#define S5KGW1P_EXPOSURE_MARGIN	4
++#define S5KGW1P_AGAIN_MIN	0x20
++#define S5KGW1P_AGAIN_MAX	0x400
++#define S5KGW1P_DGAIN_MIN	0x100
++#define S5KGW1P_DGAIN_MAX	0xfff
+ 
+ #include "s5kgw1p_modes.h"
+ 
++struct s5kgw1p_mode {
++	u32 width;
++	u32 height;
++	u32 llp;		/* vendor line_length_pck */
++	u32 fll;		/* vendor frame_length_lines = minimum */
++	u32 fll_def;
++	s64 pixel_rate;		/* VT pixel rate, checked by frame rate */
++	const struct cci_reg_sequence *regs;
++	unsigned int num_regs;
++	bool fast_1g;		/* also write s5kgw1p_fast_1g */
++};
++
++/*
++ * C-PHY symbol rate: 19.2 MHz / 3 * op_pll_mult (0x0310) / 0x0312, 1001.6 MHz
++ * in vendor mode[1]. The vendor 4x4 mode runs its link at 1708.8 MHz, which
++ * camss rejects ("Pixel clock is too high for CSIPHY"), so it is moved onto
++ * the mode[1] output PLL. Its VT pixel rate is then 864 MP/s, measured:
++ * 4160 x 20000 -> 10.38 fps, 8324 x 6920 -> 15.01 fps, 8324 x 14968 -> 6.94 fps.
++ */
++static const s64 s5kgw1p_link_freq_menu[] = { 1000000000 };
++
++static const struct cci_reg_sequence s5kgw1p_fast_1g[] = {
++	{ CCI_REG16(0x030c), 0x0001 }, { CCI_REG16(0x0310), 0x0139 },
++	{ CCI_REG16(0x0312), 0x0002 },
++};
++
++static const struct s5kgw1p_mode s5kgw1p_modes[] = {
++	{	/* vendor mode[1]: 2x2 binned full FOV, 30.0 fps (measured) */
++		.width = 4624, .height = 3468, .llp = 13672, .fll = 3512,
++		.fll_def = 3512,
++		.pixel_rate = 1440000000,
++		.regs = s5kgw1p_mode_regs,
++		.num_regs = ARRAY_SIZE(s5kgw1p_mode_regs),
++	},
++	{	/*
++		 * vendor mode[2]: 4x4 binned 16:9 crop (8000x4512), vendor
++		 * 4160 x 1730 at 240 fps; 30 fps by default here, 120 at most.
++		 */
++		.width = 2000, .height = 1128, .llp = 4160, .fll = 1730,
++		.fll_def = 6923, .pixel_rate = 864000000,
++		.regs = s5kgw1p_mode_fast_regs,
++		.num_regs = ARRAY_SIZE(s5kgw1p_mode_fast_regs),
++		.fast_1g = true,
++	},
++};
++
+ static const char * const s5kgw1p_supply_names[] = {
+ 	"vio", "vana", "vdig", "vaf", "vcustom",
+ };
+ #define S5KGW1P_NUM_SUPPLIES ARRAY_SIZE(s5kgw1p_supply_names)
+ 
+-static const s64 s5kgw1p_link_freq_menu[] = { S5KGW1P_LINK_FREQ };
+-
+ static const char * const s5kgw1p_test_pattern_menu[] = {
+ 	"Disabled", "Solid Color", "100% Color Bars", "Fade to Grey", "PN9",
+ };
+@@ -66,10 +114,14 @@
+ 	struct regulator_bulk_data supplies[S5KGW1P_NUM_SUPPLIES];
+ 	u32 mclk_freq;
+ 
++	const struct s5kgw1p_mode *mode;
+ 	struct v4l2_ctrl_handler ctrls;
++	struct v4l2_ctrl *pixel_rate;
+ 	struct v4l2_ctrl *exposure;
+ 	struct v4l2_ctrl *vblank;
+ 	struct v4l2_ctrl *hblank;
++	struct v4l2_ctrl *hflip;
++	struct v4l2_ctrl *vflip;
+ 
+ 	struct mutex lock;	/* serialise power/stream state */
+ 	bool streaming;
+@@ -80,6 +132,17 @@
+ 	return container_of(sd, struct s5kgw1p, sd);
+ }
+ 
++/* Readout is GRBG; each flip moves the pattern by one pixel on that axis. */
++static u32 s5kgw1p_code(struct s5kgw1p *s)
++{
++	static const u32 codes[2][2] = {
++		{ MEDIA_BUS_FMT_SGRBG10_1X10, MEDIA_BUS_FMT_SRGGB10_1X10 },
++		{ MEDIA_BUS_FMT_SBGGR10_1X10, MEDIA_BUS_FMT_SGBRG10_1X10 },
++	};
++
++	return codes[s->vflip->val][s->hflip->val];
++}
++
+ static int s5kgw1p_power_on(struct device *dev)
+ {
+ 	struct s5kgw1p *s = to_s5kgw1p(dev_get_drvdata(dev));
+@@ -124,24 +187,30 @@
+ {
+ 	int ret = 0;
+ 
+-	/* init[0..1] = page 0x4000 + software reset (0x6010); let the sensor reboot */
++	/* init[0..1] = page 0x4000 + software reset (0x6010); vendor waits 35 ms */
+ 	cci_multi_reg_write(s->regmap, s5kgw1p_init, 2, &ret);
+ 	if (ret)
+ 		return ret;
+-	usleep_range(10000, 11000);
++	usleep_range(35000, 36000);
+ 	cci_multi_reg_write(s->regmap, s5kgw1p_init + 2,
+ 			    ARRAY_SIZE(s5kgw1p_init) - 2, &ret);
+ 	cci_multi_reg_write(s->regmap, s5kgw1p_master,
+ 			    ARRAY_SIZE(s5kgw1p_master), &ret);
+-	cci_multi_reg_write(s->regmap, s5kgw1p_mode_regs,
+-			    ARRAY_SIZE(s5kgw1p_mode_regs), &ret);
++	cci_multi_reg_write(s->regmap, s->mode->regs, s->mode->num_regs, &ret);
++	if (s->mode->fast_1g)
++		cci_multi_reg_write(s->regmap, s5kgw1p_fast_1g,
++				    ARRAY_SIZE(s5kgw1p_fast_1g), &ret);
+ 	if (ret)
+ 		return ret;
+ 	ret = __v4l2_ctrl_handler_setup(&s->ctrls);
+ 	if (ret)
+ 		return ret;
+-	/* Vendor stream-on writes the 16-bit value 0x0100 to mode_select. */
+-	return cci_write(s->regmap, CCI_REG16(0x0100), 0x0100, NULL);
++	/*
++	 * Vendor stream-on is a 16-bit write to mode_select, which also sets
++	 * image_orientation (0x0101): carry the flips in its low byte.
++	 */
++	return cci_write(s->regmap, CCI_REG16(0x0100),
++			 0x0100 | s->hflip->val | s->vflip->val << 1, NULL);
+ }
+ 
+ static int s5kgw1p_s_stream(struct v4l2_subdev *sd, int enable)
+@@ -168,6 +237,9 @@
+ 		pm_runtime_put(&c->dev);
+ 	}
+ 	s->streaming = enable;
++	/* flips change the Bayer order, so they are fixed while streaming */
++	__v4l2_ctrl_grab(s->hflip, enable);
++	__v4l2_ctrl_grab(s->vflip, enable);
+ out:
+ 	mutex_unlock(&s->lock);
+ 	return ret;
+@@ -180,9 +252,11 @@
+ 	int ret;
+ 
+ 	if (ctrl->id == V4L2_CID_VBLANK)
+-		__v4l2_ctrl_modify_range(s->exposure, 2,
+-					 S5KGW1P_HEIGHT + ctrl->val - 8, 1,
+-					 S5KGW1P_EXPOSURE_DEF);
++		__v4l2_ctrl_modify_range(s->exposure, S5KGW1P_EXPOSURE_MIN,
++					 s->mode->height + ctrl->val -
++					 S5KGW1P_EXPOSURE_MARGIN, 1,
++					 min(S5KGW1P_EXPOSURE_DEF, s->mode->height +
++					     ctrl->val - S5KGW1P_EXPOSURE_MARGIN));
+ 
+ 	if (!pm_runtime_get_if_in_use(&c->dev))
+ 		return 0;
+@@ -194,13 +268,21 @@
+ 	case V4L2_CID_ANALOGUE_GAIN:
+ 		ret = cci_write(s->regmap, S5KGW1P_REG_ANALOG_GAIN, ctrl->val, NULL);
+ 		break;
++	case V4L2_CID_DIGITAL_GAIN:
++		ret = cci_write(s->regmap, S5KGW1P_REG_DIGITAL_GAIN, ctrl->val, NULL);
++		break;
++	case V4L2_CID_HFLIP:
++	case V4L2_CID_VFLIP:
++		ret = cci_write(s->regmap, S5KGW1P_REG_ORIENTATION,
++				s->hflip->val | s->vflip->val << 1, NULL);
++		break;
+ 	case V4L2_CID_VBLANK:
+ 		ret = cci_write(s->regmap, S5KGW1P_REG_FLL,
+-				S5KGW1P_HEIGHT + ctrl->val, NULL);
++				s->mode->height + ctrl->val, NULL);
+ 		break;
+ 	case V4L2_CID_HBLANK:
+ 		ret = cci_write(s->regmap, S5KGW1P_REG_LLP,
+-				S5KGW1P_WIDTH + ctrl->val, NULL);
++				s->mode->width + ctrl->val, NULL);
+ 		break;
+ 	case V4L2_CID_TEST_PATTERN:
+ 		ret = cci_write(s->regmap, S5KGW1P_REG_TEST_PATTERN, ctrl->val, NULL);
+@@ -217,11 +299,12 @@
+ 	.s_ctrl = s5kgw1p_set_ctrl,
+ };
+ 
+-static void s5kgw1p_fill_fmt(struct v4l2_mbus_framefmt *f)
++static void s5kgw1p_fill_fmt(struct s5kgw1p *s, const struct s5kgw1p_mode *mode,
++			     struct v4l2_mbus_framefmt *f)
+ {
+-	f->width = S5KGW1P_WIDTH;
+-	f->height = S5KGW1P_HEIGHT;
+-	f->code = MEDIA_BUS_FMT_SGRBG10_1X10;
++	f->width = mode->width;
++	f->height = mode->height;
++	f->code = s5kgw1p_code(s);
+ 	f->field = V4L2_FIELD_NONE;
+ 	f->colorspace = V4L2_COLORSPACE_RAW;
+ }
+@@ -230,17 +313,59 @@
+ 			   struct v4l2_subdev_state *state,
+ 			   struct v4l2_subdev_format *fmt)
+ {
+-	s5kgw1p_fill_fmt(&fmt->format);
++	struct s5kgw1p *s = to_s5kgw1p(sd);
++
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
++		fmt->format = *v4l2_subdev_state_get_format(state, 0);
++	else
++		s5kgw1p_fill_fmt(s, s->mode, &fmt->format);
+ 	return 0;
+ }
+ 
++static int s5kgw1p_set_fmt(struct v4l2_subdev *sd,
++			   struct v4l2_subdev_state *state,
++			   struct v4l2_subdev_format *fmt)
++{
++	struct s5kgw1p *s = to_s5kgw1p(sd);
++	const struct s5kgw1p_mode *mode;
++	int ret = 0;
++
++	mode = v4l2_find_nearest_size(s5kgw1p_modes, ARRAY_SIZE(s5kgw1p_modes),
++				      width, height, fmt->format.width,
++				      fmt->format.height);
++	s5kgw1p_fill_fmt(s, mode, &fmt->format);
++
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		*v4l2_subdev_state_get_format(state, 0) = fmt->format;
++		return 0;
++	}
++
++	mutex_lock(&s->lock);
++	if (s->streaming) {
++		ret = -EBUSY;
++		goto out;
++	}
++	s->mode = mode;
++	v4l2_ctrl_s_ctrl_int64(s->pixel_rate, mode->pixel_rate);
++	v4l2_ctrl_modify_range(s->hblank, mode->llp - mode->width,
++			       mode->llp - mode->width, 1,
++			       mode->llp - mode->width);
++	v4l2_ctrl_modify_range(s->vblank, mode->fll - mode->height,
++			       0xffff - mode->height, 1,
++			       mode->fll_def - mode->height);
++	v4l2_ctrl_s_ctrl(s->vblank, mode->fll_def - mode->height);
++out:
++	mutex_unlock(&s->lock);
++	return ret;
++}
++
+ static int s5kgw1p_enum_mbus_code(struct v4l2_subdev *sd,
+ 				  struct v4l2_subdev_state *state,
+ 				  struct v4l2_subdev_mbus_code_enum *code)
+ {
+ 	if (code->index)
+ 		return -EINVAL;
+-	code->code = MEDIA_BUS_FMT_SGRBG10_1X10;
++	code->code = s5kgw1p_code(to_s5kgw1p(sd));
+ 	return 0;
+ }
+ 
+@@ -248,17 +373,19 @@
+ 				   struct v4l2_subdev_state *state,
+ 				   struct v4l2_subdev_frame_size_enum *fse)
+ {
+-	if (fse->index || fse->code != MEDIA_BUS_FMT_SGRBG10_1X10)
++	if (fse->index >= ARRAY_SIZE(s5kgw1p_modes) ||
++	    fse->code != s5kgw1p_code(to_s5kgw1p(sd)))
+ 		return -EINVAL;
+-	fse->min_width = fse->max_width = S5KGW1P_WIDTH;
+-	fse->min_height = fse->max_height = S5KGW1P_HEIGHT;
++	fse->min_width = fse->max_width = s5kgw1p_modes[fse->index].width;
++	fse->min_height = fse->max_height = s5kgw1p_modes[fse->index].height;
+ 	return 0;
+ }
+ 
+ static int s5kgw1p_init_state(struct v4l2_subdev *sd,
+ 			      struct v4l2_subdev_state *state)
+ {
+-	s5kgw1p_fill_fmt(v4l2_subdev_state_get_format(state, 0));
++	s5kgw1p_fill_fmt(to_s5kgw1p(sd), &s5kgw1p_modes[0],
++			 v4l2_subdev_state_get_format(state, 0));
+ 	return 0;
+ }
+ 
+@@ -270,7 +397,7 @@
+ 	.enum_mbus_code = s5kgw1p_enum_mbus_code,
+ 	.enum_frame_size = s5kgw1p_enum_frame_size,
+ 	.get_fmt = s5kgw1p_get_fmt,
+-	.set_fmt = s5kgw1p_get_fmt,	/* single fixed mode */
++	.set_fmt = s5kgw1p_set_fmt,
+ };
+ 
+ static const struct v4l2_subdev_ops s5kgw1p_subdev_ops = {
+@@ -290,31 +417,44 @@
+ 	struct v4l2_ctrl *ctrl;
+ 	int ret;
+ 
+-	v4l2_ctrl_handler_init(h, 10);
++	v4l2_ctrl_handler_init(h, 13);
+ 
+ 	ctrl = v4l2_ctrl_new_int_menu(h, NULL, V4L2_CID_LINK_FREQ, 0, 0,
+ 				      s5kgw1p_link_freq_menu);
+ 	if (ctrl)
+ 		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+ 
+-	ctrl = v4l2_ctrl_new_std(h, NULL, V4L2_CID_PIXEL_RATE,
+-				 S5KGW1P_PIXEL_RATE, S5KGW1P_PIXEL_RATE, 1,
+-				 S5KGW1P_PIXEL_RATE);
+-	if (ctrl)
+-		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++	s->pixel_rate = v4l2_ctrl_new_std(h, NULL, V4L2_CID_PIXEL_RATE, 1,
++					  INT_MAX * 2LL, 1, s->mode->pixel_rate);
++	if (s->pixel_rate)
++		s->pixel_rate->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+ 
+ 	s->exposure = v4l2_ctrl_new_std(h, &s5kgw1p_ctrl_ops, V4L2_CID_EXPOSURE,
+-					2, S5KGW1P_FLL_DEF - 8, 1,
+-					S5KGW1P_EXPOSURE_DEF);
++					S5KGW1P_EXPOSURE_MIN,
++					s->mode->fll_def - S5KGW1P_EXPOSURE_MARGIN,
++					1, S5KGW1P_EXPOSURE_DEF);
+ 	v4l2_ctrl_new_std(h, &s5kgw1p_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
+-			  0, 4095, 1, 256);
++			  S5KGW1P_AGAIN_MIN, S5KGW1P_AGAIN_MAX, 1,
++			  S5KGW1P_AGAIN_MIN);
++	v4l2_ctrl_new_std(h, &s5kgw1p_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
++			  S5KGW1P_DGAIN_MIN, S5KGW1P_DGAIN_MAX, 1,
++			  S5KGW1P_DGAIN_MIN);
++	s->hflip = v4l2_ctrl_new_std(h, &s5kgw1p_ctrl_ops, V4L2_CID_HFLIP,
++				     0, 1, 1, 0);
++	if (s->hflip)
++		s->hflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
++	s->vflip = v4l2_ctrl_new_std(h, &s5kgw1p_ctrl_ops, V4L2_CID_VFLIP,
++				     0, 1, 1, 0);
++	if (s->vflip)
++		s->vflip->flags |= V4L2_CTRL_FLAG_MODIFY_LAYOUT;
+ 	s->vblank = v4l2_ctrl_new_std(h, &s5kgw1p_ctrl_ops, V4L2_CID_VBLANK,
+-				      S5KGW1P_VBLANK_MIN, 0xffff - S5KGW1P_HEIGHT,
+-				      1, S5KGW1P_VBLANK_MIN);
++				      s->mode->fll - s->mode->height,
++				      0xffff - s->mode->height, 1,
++				      s->mode->fll_def - s->mode->height);
+ 	s->hblank = v4l2_ctrl_new_std(h, &s5kgw1p_ctrl_ops, V4L2_CID_HBLANK,
+-				      S5KGW1P_LLP_DEF - S5KGW1P_WIDTH,
+-				      S5KGW1P_LLP_DEF - S5KGW1P_WIDTH, 1,
+-				      S5KGW1P_LLP_DEF - S5KGW1P_WIDTH);
++				      s->mode->llp - s->mode->width,
++				      s->mode->llp - s->mode->width, 1,
++				      s->mode->llp - s->mode->width);
+ 	if (s->hblank)
+ 		s->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
+ 
+@@ -405,6 +545,7 @@
+ 	}
+ 	dev_info(dev, "Samsung S5KGW1P detected, chip id 0x%04llx\n", id);
+ 
++	s->mode = &s5kgw1p_modes[0];
+ 	ret = s5kgw1p_init_ctrls(s);
+ 	if (ret)
+ 		goto err_power;
+diff --git a/drivers/media/i2c/s5kgw1p_modes.h b/drivers/media/i2c/s5kgw1p_modes.h
+--- a/drivers/media/i2c/s5kgw1p_modes.h	2026-09-27 11:43:31.549631739 +0200
++++ b/drivers/media/i2c/s5kgw1p_modes.h	2026-09-27 11:43:31.556298434 +0200
+@@ -1021,3 +1021,195 @@
+ 	{CCI_REG16(0x6000), 0x0085}, {CCI_REG16(0x6214), 0xf9f0}, {CCI_REG16(0x6218), 0xf9f0},
+ };
+ 
++/* mode[2]: 2000x1128, 4x4 binned 16:9 (8000x4512 crop), line_length=4160 frame_length=1730 fps=240.11 */
++static const struct cci_reg_sequence s5kgw1p_mode_fast_regs[] = {
++	{CCI_REG16(0xfcfc), 0x4000}, {CCI_REG16(0x6000), 0x0005}, {CCI_REG16(0x0136), 0x1300},
++	{CCI_REG16(0x013e), 0x00c8}, {CCI_REG16(0xfcfc), 0x2000}, {CCI_REG16(0x12d6), 0x2000},
++	{CCI_REG16(0x12d8), 0x136f}, {CCI_REG16(0x1324), 0x0000}, {CCI_REG16(0x132c), 0x0001},
++	{CCI_REG16(0x1f92), 0x00ff}, {CCI_REG16(0x1f94), 0x003f}, {CCI_REG16(0x1f96), 0x0100},
++	{CCI_REG16(0x1f98), 0x0040}, {CCI_REG16(0x1f9a), 0x0000}, {CCI_REG16(0x1f9c), 0x4000},
++	{CCI_REG16(0x1f9e), 0xf402}, {CCI_REG16(0x1fa4), 0xf404}, {CCI_REG16(0x1fca), 0x07ff},
++	{CCI_REG16(0x1fcc), 0x0483}, {CCI_REG16(0x1fce), 0xf446}, {CCI_REG16(0x1ffa), 0x4000},
++	{CCI_REG16(0x1ffc), 0x0003}, {CCI_REG16(0x214c), 0x0001}, {CCI_REG16(0x214e), 0x0004},
++	{CCI_REG16(0x2158), 0x2020}, {CCI_REG16(0x22cc), 0x0012}, {CCI_REG16(0x22d4), 0x002a},
++	{CCI_REG16(0x22dc), 0x0044}, {CCI_REG16(0x22e4), 0x0061}, {CCI_REG16(0x22f4), 0x0028},
++	{CCI_REG16(0x2304), 0x0028}, {CCI_REG16(0x230c), 0x0016}, {CCI_REG16(0x2314), 0x0084},
++	{CCI_REG16(0x2324), 0x002a}, {CCI_REG16(0x233c), 0x0037}, {CCI_REG16(0x2344), 0x0028},
++	{CCI_REG16(0x237c), 0x0025}, {CCI_REG16(0x2384), 0x0020}, {CCI_REG16(0x238c), 0x0016},
++	{CCI_REG16(0x2394), 0x00ac}, {CCI_REG16(0x23c4), 0x0007}, {CCI_REG16(0x23f4), 0x0023},
++	{CCI_REG16(0x23fc), 0x0021}, {CCI_REG16(0x2404), 0x00a4}, {CCI_REG16(0x240c), 0x008e},
++	{CCI_REG16(0x2414), 0x0016}, {CCI_REG16(0x241c), 0x000f}, {CCI_REG16(0x2424), 0x0028},
++	{CCI_REG16(0x242c), 0x0012}, {CCI_REG16(0x2434), 0x0020}, {CCI_REG16(0x2444), 0x0098},
++	{CCI_REG16(0x244c), 0x0021}, {CCI_REG16(0x2454), 0x000c}, {CCI_REG16(0x245c), 0x0021},
++	{CCI_REG16(0x2464), 0x000c}, {CCI_REG16(0x246c), 0x0021}, {CCI_REG16(0x2474), 0x000c},
++	{CCI_REG16(0x247c), 0x0021}, {CCI_REG16(0x2484), 0x000c}, {CCI_REG16(0x2494), 0x0021},
++	{CCI_REG16(0x24a4), 0x0021}, {CCI_REG16(0x24ac), 0x0007}, {CCI_REG16(0x24b4), 0x0021},
++	{CCI_REG16(0x24c4), 0x0021}, {CCI_REG16(0x24cc), 0x0007}, {CCI_REG16(0x24d4), 0x0021},
++	{CCI_REG16(0x2504), 0x0019}, {CCI_REG16(0x250c), 0x0004}, {CCI_REG16(0x2514), 0x0019},
++	{CCI_REG16(0x251c), 0x0004}, {CCI_REG16(0x2524), 0x000f}, {CCI_REG16(0x252c), 0x055a},
++	{CCI_REG16(0x2534), 0x056d}, {CCI_REG16(0x253c), 0x057f}, {CCI_REG16(0x254c), 0x055a},
++	{CCI_REG16(0x2554), 0x056d}, {CCI_REG16(0x255c), 0x057f}, {CCI_REG16(0x2564), 0x0002},
++	{CCI_REG16(0x256c), 0x001d}, {CCI_REG16(0x2574), 0x0003}, {CCI_REG16(0x258c), 0x005f},
++	{CCI_REG16(0x2594), 0x0091}, {CCI_REG16(0x259c), 0x006e}, {CCI_REG16(0x25a4), 0x00a1},
++	{CCI_REG16(0x25ac), 0x0080}, {CCI_REG16(0x25b4), 0x00a1}, {CCI_REG16(0x25bc), 0x0007},
++	{CCI_REG16(0x25c4), 0x000b}, {CCI_REG16(0x25cc), 0x000b}, {CCI_REG16(0x25d4), 0x000e},
++	{CCI_REG16(0x25dc), 0x000b}, {CCI_REG16(0x25e4), 0x000f}, {CCI_REG16(0x25ec), 0x000b},
++	{CCI_REG16(0x25f4), 0x000e}, {CCI_REG16(0x25fc), 0x000b}, {CCI_REG16(0x2604), 0x001b},
++	{CCI_REG16(0x260c), 0x001b}, {CCI_REG16(0x2614), 0x001b}, {CCI_REG16(0x261c), 0x001b},
++	{CCI_REG16(0x2624), 0x000c}, {CCI_REG16(0x262c), 0x0006}, {CCI_REG16(0x2634), 0x000c},
++	{CCI_REG16(0x263c), 0x0006}, {CCI_REG16(0x2644), 0x000b}, {CCI_REG16(0x264c), 0x0006},
++	{CCI_REG16(0x2654), 0x000c}, {CCI_REG16(0x265c), 0x0006}, {CCI_REG16(0x2664), 0x0007},
++	{CCI_REG16(0x266c), 0x0007}, {CCI_REG16(0x2674), 0x0007}, {CCI_REG16(0x267c), 0x0007},
++	{CCI_REG16(0x2684), 0x0007}, {CCI_REG16(0x268c), 0x0008}, {CCI_REG16(0x269c), 0x0005},
++	{CCI_REG16(0x26cc), 0x0005}, {CCI_REG16(0x26d4), 0x000e}, {CCI_REG16(0x26dc), 0x000e},
++	{CCI_REG16(0x26e4), 0x000f}, {CCI_REG16(0x26ec), 0x000f}, {CCI_REG16(0x26f4), 0x0007},
++	{CCI_REG16(0x26fc), 0x000b}, {CCI_REG16(0x2704), 0x000b}, {CCI_REG16(0x270c), 0x000b},
++	{CCI_REG16(0x271c), 0x000b}, {CCI_REG16(0x277c), 0x0015}, {CCI_REG16(0x2784), 0x0007},
++	{CCI_REG16(0x278c), 0x000b}, {CCI_REG16(0x2794), 0x000d}, {CCI_REG16(0x279c), 0x000b},
++	{CCI_REG16(0x27a4), 0x000d}, {CCI_REG16(0x27ac), 0x000b}, {CCI_REG16(0x27b4), 0x000d},
++	{CCI_REG16(0x27bc), 0x000b}, {CCI_REG16(0x27c4), 0x000c}, {CCI_REG16(0x27cc), 0x000b},
++	{CCI_REG16(0x27d4), 0x0004}, {CCI_REG16(0x27dc), 0x0021}, {CCI_REG16(0x27e4), 0x0004},
++	{CCI_REG16(0x27ec), 0x006e}, {CCI_REG16(0x27fc), 0x0130}, {CCI_REG16(0x2814), 0x0004},
++	{CCI_REG16(0x282c), 0x0013}, {CCI_REG16(0x2b44), 0x0012}, {CCI_REG16(0x2b4c), 0x0004},
++	{CCI_REG16(0x2b54), 0x0012}, {CCI_REG16(0x2b5c), 0x0012}, {CCI_REG16(0x2b64), 0x0009},
++	{CCI_REG16(0x2bfc), 0x807d}, {CCI_REG16(0x35d4), 0x0720}, {CCI_REG16(0x3600), 0x0005},
++	{CCI_REG16(0x363a), 0x0060}, {CCI_REG16(0x363c), 0x0061}, {CCI_REG16(0x363e), 0x0070},
++	{CCI_REG16(0x3640), 0x0071}, {CCI_REG16(0x373e), 0x0404}, {CCI_REG16(0x374c), 0x0101},
++	{CCI_REG16(0x375e), 0x0200}, {CCI_REG16(0x3760), 0x0200}, {CCI_REG16(0x3774), 0x0101},
++	{CCI_REG16(0x3776), 0x0101}, {CCI_REG16(0x377e), 0x0011}, {CCI_REG16(0x3780), 0x0000},
++	{CCI_REG16(0x3782), 0x0022}, {CCI_REG16(0x3784), 0x0000}, {CCI_REG16(0x3786), 0x0011},
++	{CCI_REG16(0x3788), 0x0000}, {CCI_REG16(0x378a), 0x0022}, {CCI_REG16(0x378c), 0x0000},
++	{CCI_REG16(0x378e), 0x0011}, {CCI_REG16(0x3790), 0x0000}, {CCI_REG16(0x3792), 0x0022},
++	{CCI_REG16(0x3794), 0x0000}, {CCI_REG16(0x3796), 0x0011}, {CCI_REG16(0x3798), 0x0000},
++	{CCI_REG16(0x379a), 0x0022}, {CCI_REG16(0x379c), 0x0000}, {CCI_REG16(0x379e), 0x0033},
++	{CCI_REG16(0x37a0), 0x0000}, {CCI_REG16(0x37a2), 0x0011}, {CCI_REG16(0x37a4), 0x0000},
++	{CCI_REG16(0x37a6), 0x0022}, {CCI_REG16(0x37a8), 0x0000}, {CCI_REG16(0x37aa), 0x0011},
++	{CCI_REG16(0x37ac), 0x0000}, {CCI_REG16(0x37ae), 0x0022}, {CCI_REG16(0x37b0), 0x0000},
++	{CCI_REG16(0x37b2), 0x0011}, {CCI_REG16(0x37b4), 0x0000}, {CCI_REG16(0x37b6), 0x0022},
++	{CCI_REG16(0x37b8), 0x0000}, {CCI_REG16(0x37ba), 0x0011}, {CCI_REG16(0x37bc), 0x0000},
++	{CCI_REG16(0x37be), 0x0022}, {CCI_REG16(0x37c0), 0x0000}, {CCI_REG16(0x37c2), 0x0033},
++	{CCI_REG16(0x37c4), 0x0000}, {CCI_REG16(0x37c6), 0x0011}, {CCI_REG16(0x37c8), 0x0000},
++	{CCI_REG16(0x37ca), 0x0022}, {CCI_REG16(0x37cc), 0x0000}, {CCI_REG16(0x37ce), 0x0011},
++	{CCI_REG16(0x37d0), 0x0000}, {CCI_REG16(0x37d2), 0x0022}, {CCI_REG16(0x37d4), 0x0000},
++	{CCI_REG16(0x37d6), 0x0011}, {CCI_REG16(0x37d8), 0x0000}, {CCI_REG16(0x37da), 0x0022},
++	{CCI_REG16(0x37dc), 0x0000}, {CCI_REG16(0x37de), 0x0011}, {CCI_REG16(0x37e0), 0x0000},
++	{CCI_REG16(0x37e2), 0x0022}, {CCI_REG16(0x37e4), 0x0000}, {CCI_REG16(0x37e6), 0x0033},
++	{CCI_REG16(0x37e8), 0x0000}, {CCI_REG16(0x37ea), 0x0010}, {CCI_REG16(0x37ec), 0x0000},
++	{CCI_REG16(0x37ee), 0x0022}, {CCI_REG16(0x37f0), 0x0000}, {CCI_REG16(0x37f2), 0x0010},
++	{CCI_REG16(0x37f4), 0x0000}, {CCI_REG16(0x37f6), 0x0022}, {CCI_REG16(0x37f8), 0x0000},
++	{CCI_REG16(0x37fa), 0x0010}, {CCI_REG16(0x37fc), 0x0000}, {CCI_REG16(0x37fe), 0x0022},
++	{CCI_REG16(0x3800), 0x0000}, {CCI_REG16(0x3802), 0x0010}, {CCI_REG16(0x3804), 0x0000},
++	{CCI_REG16(0x3806), 0x0022}, {CCI_REG16(0x3808), 0x0000}, {CCI_REG16(0x380a), 0x0033},
++	{CCI_REG16(0x380c), 0x0000}, {CCI_REG16(0x3ea6), 0x0000}, {CCI_REG16(0x3eb2), 0x0000},
++	{CCI_REG16(0x3eb6), 0x0000}, {CCI_REG16(0x3ec2), 0x0000}, {CCI_REG16(0x3f74), 0x0003},
++	{CCI_REG16(0x424e), 0x0000}, {CCI_REG16(0x4250), 0x0000}, {CCI_REG16(0x4252), 0x0000},
++	{CCI_REG16(0x4254), 0x0000}, {CCI_REG16(0x4256), 0x0000}, {CCI_REG16(0x42fe), 0x0000},
++	{CCI_REG16(0x4300), 0x0000}, {CCI_REG16(0x4302), 0x0000}, {CCI_REG16(0x4304), 0x0000},
++	{CCI_REG16(0x4306), 0x0000}, {CCI_REG16(0x4308), 0x0000}, {CCI_REG16(0x430a), 0x0000},
++	{CCI_REG16(0x430c), 0x0000}, {CCI_REG16(0x430e), 0x0000}, {CCI_REG16(0x4310), 0x0000},
++	{CCI_REG16(0x4312), 0x0000}, {CCI_REG16(0x4314), 0x0000}, {CCI_REG16(0x4316), 0x0000},
++	{CCI_REG16(0x4318), 0x0000}, {CCI_REG16(0x431a), 0x0000}, {CCI_REG16(0x431c), 0x0000},
++	{CCI_REG16(0x437e), 0x0010}, {CCI_REG16(0x4380), 0x0010}, {CCI_REG16(0x4382), 0x0010},
++	{CCI_REG16(0x4384), 0x0010}, {CCI_REG16(0x4386), 0x0010}, {CCI_REG16(0x4388), 0x0010},
++	{CCI_REG16(0x438a), 0x0010}, {CCI_REG16(0x438c), 0x0010}, {CCI_REG16(0x438e), 0x0010},
++	{CCI_REG16(0x4390), 0x0010}, {CCI_REG16(0x4392), 0x0010}, {CCI_REG16(0x4394), 0x0010},
++	{CCI_REG16(0x4396), 0x0010}, {CCI_REG16(0x4398), 0x0010}, {CCI_REG16(0x439a), 0x0010},
++	{CCI_REG16(0x439c), 0x0010}, {CCI_REG16(0x49b6), 0x0000}, {CCI_REG16(0x49b8), 0x0000},
++	{CCI_REG16(0x49ba), 0x0000}, {CCI_REG16(0x49bc), 0x0000}, {CCI_REG16(0x49be), 0x0000},
++	{CCI_REG16(0x49c0), 0x0000}, {CCI_REG16(0x49c2), 0x0000}, {CCI_REG16(0x49c4), 0x0000},
++	{CCI_REG16(0x49c6), 0x0000}, {CCI_REG16(0x49c8), 0x0000}, {CCI_REG16(0x49ca), 0x0000},
++	{CCI_REG16(0x49cc), 0x0000}, {CCI_REG16(0x49ce), 0x0000}, {CCI_REG16(0x49d0), 0x0000},
++	{CCI_REG16(0x49d2), 0x0000}, {CCI_REG16(0x49d4), 0x0000}, {CCI_REG16(0x4a36), 0x0010},
++	{CCI_REG16(0x4a38), 0x0010}, {CCI_REG16(0x4a3a), 0x0010}, {CCI_REG16(0x4a3c), 0x0010},
++	{CCI_REG16(0x4a3e), 0x0010}, {CCI_REG16(0x4a40), 0x0010}, {CCI_REG16(0x4a42), 0x0010},
++	{CCI_REG16(0x4a44), 0x0010}, {CCI_REG16(0x4a46), 0x0010}, {CCI_REG16(0x4a48), 0x0010},
++	{CCI_REG16(0x4a4a), 0x0010}, {CCI_REG16(0x4a4c), 0x0010}, {CCI_REG16(0x4a4e), 0x0010},
++	{CCI_REG16(0x4a50), 0x0010}, {CCI_REG16(0x4a52), 0x0010}, {CCI_REG16(0x4a54), 0x0010},
++	{CCI_REG16(0x5080), 0x0001}, {CCI_REG16(0x509e), 0x0000}, {CCI_REG16(0x50a0), 0x0000},
++	{CCI_REG16(0x50a2), 0x0000}, {CCI_REG16(0x50a4), 0x0000}, {CCI_REG16(0x50f0), 0x0000},
++	{CCI_REG16(0x50f2), 0x0000}, {CCI_REG16(0x50f4), 0x0000}, {CCI_REG16(0x50f6), 0x0000},
++	{CCI_REG16(0x50f8), 0x0000}, {CCI_REG16(0x5360), 0x0000}, {CCI_REG16(0x5832), 0x0100},
++	{CCI_REG16(0x5876), 0x0204}, {CCI_REG16(0x5878), 0x0201}, {CCI_REG16(0x58ea), 0x0000},
++	{CCI_REG16(0x5922), 0x0804}, {CCI_REG16(0x5e3a), 0x0000}, {CCI_REG16(0x5e3c), 0x0000},
++	{CCI_REG16(0x5e3e), 0x0000}, {CCI_REG16(0x5e40), 0x0000}, {CCI_REG16(0x5e42), 0x0000},
++	{CCI_REG16(0x5e60), 0x0101}, {CCI_REG16(0x61c0), 0x0100}, {CCI_REG16(0x61c2), 0x0000},
++	{CCI_REG16(0x61c4), 0x0000}, {CCI_REG16(0x61c6), 0x0048}, {CCI_REG16(0x6326), 0x000a},
++	{CCI_REG16(0x6332), 0x0000}, {CCI_REG16(0x8062), 0x0020}, {CCI_REG16(0x8064), 0x0020},
++	{CCI_REG16(0x8066), 0x0020}, {CCI_REG16(0x8068), 0x0020}, {CCI_REG16(0x806a), 0x0020},
++	{CCI_REG16(0x806c), 0x0020}, {CCI_REG16(0x80f2), 0x0040}, {CCI_REG16(0x80f4), 0x0040},
++	{CCI_REG16(0x80f6), 0x0060}, {CCI_REG16(0x80f8), 0x0060}, {CCI_REG16(0x80fa), 0x0060},
++	{CCI_REG16(0x80fc), 0x0060}, {CCI_REG16(0x8102), 0x0048}, {CCI_REG16(0x8104), 0x0048},
++	{CCI_REG16(0x8106), 0x006c}, {CCI_REG16(0x8108), 0x006c}, {CCI_REG16(0x810a), 0x006c},
++	{CCI_REG16(0x810c), 0x006c}, {CCI_REG16(0x8112), 0x008e}, {CCI_REG16(0x8114), 0x008e},
++	{CCI_REG16(0x8116), 0x00d6}, {CCI_REG16(0x8118), 0x00d6}, {CCI_REG16(0x811a), 0x00d6},
++	{CCI_REG16(0x811c), 0x00d6}, {CCI_REG16(0x8122), 0x00b4}, {CCI_REG16(0x8124), 0x00b4},
++	{CCI_REG16(0x8126), 0x010e}, {CCI_REG16(0x8128), 0x010e}, {CCI_REG16(0x812a), 0x010e},
++	{CCI_REG16(0x812c), 0x010e}, {CCI_REG16(0x8132), 0x00f2}, {CCI_REG16(0x8134), 0x00f2},
++	{CCI_REG16(0x8136), 0x016c}, {CCI_REG16(0x8138), 0x016c}, {CCI_REG16(0x813a), 0x016c},
++	{CCI_REG16(0x813c), 0x016c}, {CCI_REG16(0x8142), 0x014b}, {CCI_REG16(0x8144), 0x014b},
++	{CCI_REG16(0x8146), 0x01f1}, {CCI_REG16(0x8148), 0x01f1}, {CCI_REG16(0x814a), 0x01f1},
++	{CCI_REG16(0x814c), 0x01f1}, {CCI_REG16(0x8212), 0x0046}, {CCI_REG16(0x8214), 0x0046},
++	{CCI_REG16(0x8216), 0x0046}, {CCI_REG16(0x8218), 0x0046}, {CCI_REG16(0x821a), 0x0046},
++	{CCI_REG16(0x821c), 0x0046}, {CCI_REG16(0x8222), 0x0050}, {CCI_REG16(0x8224), 0x0050},
++	{CCI_REG16(0x8226), 0x0050}, {CCI_REG16(0x8228), 0x0050}, {CCI_REG16(0x822a), 0x0050},
++	{CCI_REG16(0x822c), 0x0050}, {CCI_REG16(0x8232), 0x0064}, {CCI_REG16(0x8234), 0x0064},
++	{CCI_REG16(0x8236), 0x0064}, {CCI_REG16(0x8238), 0x0064}, {CCI_REG16(0x823a), 0x0064},
++	{CCI_REG16(0x823c), 0x0064}, {CCI_REG16(0x8242), 0x00a0}, {CCI_REG16(0x8244), 0x00a0},
++	{CCI_REG16(0x8246), 0x00a0}, {CCI_REG16(0x8248), 0x00a0}, {CCI_REG16(0x824a), 0x00a0},
++	{CCI_REG16(0x824c), 0x00a0}, {CCI_REG16(0x8252), 0x00f0}, {CCI_REG16(0x8254), 0x00f0},
++	{CCI_REG16(0x8256), 0x00f0}, {CCI_REG16(0x8258), 0x00f0}, {CCI_REG16(0x825a), 0x00f0},
++	{CCI_REG16(0x825c), 0x00f0}, {CCI_REG16(0x8262), 0x015e}, {CCI_REG16(0x8264), 0x015e},
++	{CCI_REG16(0x8266), 0x015e}, {CCI_REG16(0x8268), 0x015e}, {CCI_REG16(0x826a), 0x015e},
++	{CCI_REG16(0x826c), 0x015e}, {CCI_REG16(0x8332), 0x0041}, {CCI_REG16(0x8334), 0x0041},
++	{CCI_REG16(0x8336), 0x0041}, {CCI_REG16(0x8338), 0x0041}, {CCI_REG16(0x833a), 0x0041},
++	{CCI_REG16(0x833c), 0x0041}, {CCI_REG16(0x8342), 0x005c}, {CCI_REG16(0x8344), 0x005c},
++	{CCI_REG16(0x8346), 0x005c}, {CCI_REG16(0x8348), 0x005c}, {CCI_REG16(0x834a), 0x005c},
++	{CCI_REG16(0x834c), 0x005c}, {CCI_REG16(0x8352), 0x008c}, {CCI_REG16(0x8354), 0x008c},
++	{CCI_REG16(0x8356), 0x008c}, {CCI_REG16(0x8358), 0x008c}, {CCI_REG16(0x835a), 0x008c},
++	{CCI_REG16(0x835c), 0x008c}, {CCI_REG16(0x8362), 0x0104}, {CCI_REG16(0x8364), 0x0104},
++	{CCI_REG16(0x8366), 0x0104}, {CCI_REG16(0x8368), 0x0104}, {CCI_REG16(0x836a), 0x0104},
++	{CCI_REG16(0x836c), 0x0104}, {CCI_REG16(0x8372), 0x012f}, {CCI_REG16(0x8374), 0x012f},
++	{CCI_REG16(0x8376), 0x012f}, {CCI_REG16(0x8378), 0x012f}, {CCI_REG16(0x837a), 0x012f},
++	{CCI_REG16(0x837c), 0x012f}, {CCI_REG16(0x8382), 0x019e}, {CCI_REG16(0x8384), 0x019e},
++	{CCI_REG16(0x8386), 0x019e}, {CCI_REG16(0x8388), 0x019e}, {CCI_REG16(0x838a), 0x019e},
++	{CCI_REG16(0x838c), 0x019e}, {CCI_REG16(0x8492), 0x0003}, {CCI_REG16(0x8494), 0x0003},
++	{CCI_REG16(0x8496), 0x0003}, {CCI_REG16(0x8498), 0x0003}, {CCI_REG16(0x849a), 0x0003},
++	{CCI_REG16(0x849c), 0x0003}, {CCI_REG16(0x84a2), 0x0005}, {CCI_REG16(0x84a4), 0x0005},
++	{CCI_REG16(0x84a6), 0x0005}, {CCI_REG16(0x84a8), 0x0005}, {CCI_REG16(0x84aa), 0x0005},
++	{CCI_REG16(0x84ac), 0x0005}, {CCI_REG16(0x84f2), 0x0004}, {CCI_REG16(0x84f4), 0x0004},
++	{CCI_REG16(0x84f6), 0x0004}, {CCI_REG16(0x84f8), 0x0004}, {CCI_REG16(0x84fa), 0x0004},
++	{CCI_REG16(0x84fc), 0x0004}, {CCI_REG16(0x8502), 0x0004}, {CCI_REG16(0x8504), 0x0004},
++	{CCI_REG16(0x8506), 0x0004}, {CCI_REG16(0x8508), 0x0004}, {CCI_REG16(0x850a), 0x0004},
++	{CCI_REG16(0x850c), 0x0004}, {CCI_REG16(0x8512), 0x0005}, {CCI_REG16(0x8514), 0x0005},
++	{CCI_REG16(0x8516), 0x0005}, {CCI_REG16(0x8518), 0x0005}, {CCI_REG16(0x851a), 0x0005},
++	{CCI_REG16(0x851c), 0x0005}, {CCI_REG16(0x8522), 0x0006}, {CCI_REG16(0x8524), 0x0006},
++	{CCI_REG16(0x8526), 0x0006}, {CCI_REG16(0x8528), 0x0006}, {CCI_REG16(0x852a), 0x0006},
++	{CCI_REG16(0x852c), 0x0006}, {CCI_REG16(0x85b2), 0x0008}, {CCI_REG16(0x85b4), 0x0008},
++	{CCI_REG16(0x85b6), 0x0008}, {CCI_REG16(0x85b8), 0x0008}, {CCI_REG16(0x85ba), 0x0008},
++	{CCI_REG16(0x85bc), 0x0008}, {CCI_REG16(0x85c2), 0x0011}, {CCI_REG16(0x85c4), 0x0011},
++	{CCI_REG16(0x85c6), 0x0011}, {CCI_REG16(0x85c8), 0x0011}, {CCI_REG16(0x85ca), 0x0011},
++	{CCI_REG16(0x85cc), 0x0011}, {CCI_REG16(0x85d2), 0x0014}, {CCI_REG16(0x85d4), 0x0014},
++	{CCI_REG16(0x85d6), 0x0014}, {CCI_REG16(0x85d8), 0x0014}, {CCI_REG16(0x85da), 0x0014},
++	{CCI_REG16(0x85dc), 0x0014}, {CCI_REG16(0x85e2), 0x0023}, {CCI_REG16(0x85e4), 0x0023},
++	{CCI_REG16(0x85e6), 0x0023}, {CCI_REG16(0x85e8), 0x0023}, {CCI_REG16(0x85ea), 0x0023},
++	{CCI_REG16(0x85ec), 0x0023}, {CCI_REG16(0x85f2), 0x0046}, {CCI_REG16(0x85f4), 0x0046},
++	{CCI_REG16(0x85f6), 0x0046}, {CCI_REG16(0x85f8), 0x0046}, {CCI_REG16(0x85fa), 0x0046},
++	{CCI_REG16(0x85fc), 0x0046}, {CCI_REG16(0x8602), 0x0096}, {CCI_REG16(0x8604), 0x0096},
++	{CCI_REG16(0x8606), 0x0096}, {CCI_REG16(0x8608), 0x0096}, {CCI_REG16(0x860a), 0x0096},
++	{CCI_REG16(0x860c), 0x0096}, {CCI_REG16(0xfcfc), 0x2001}, {CCI_REG16(0xd034), 0x0000},
++	{CCI_REG16(0xd036), 0x0000}, {CCI_REG16(0xfcfc), 0x4000}, {CCI_REG16(0x0114), 0x0200},
++	{CCI_REG16(0x0116), 0x3000}, {CCI_REG16(0x0300), 0x000a}, {CCI_REG16(0x0302), 0x0001},
++	{CCI_REG16(0x0304), 0x0004}, {CCI_REG16(0x0306), 0x01c2}, {CCI_REG16(0x0308), 0x0008},
++	{CCI_REG16(0x030a), 0x0001}, {CCI_REG16(0x030c), 0x0000}, {CCI_REG16(0x030e), 0x0003},
++	{CCI_REG16(0x0310), 0x010b}, {CCI_REG16(0x0312), 0x0001}, {CCI_REG16(0x0340), 0x06c2},
++	{CCI_REG16(0x0342), 0x1040}, {CCI_REG16(0x0344), 0x0280}, {CCI_REG16(0x0346), 0x04c0},
++	{CCI_REG16(0x0348), 0x21bf}, {CCI_REG16(0x034a), 0x165f}, {CCI_REG16(0x034c), 0x07d0},
++	{CCI_REG16(0x034e), 0x0468}, {CCI_REG16(0x0350), 0x0000}, {CCI_REG16(0x0352), 0x0000},
++	{CCI_REG16(0x0380), 0x0002}, {CCI_REG16(0x0382), 0x0006}, {CCI_REG16(0x0384), 0x0002},
++	{CCI_REG16(0x0386), 0x0006}, {CCI_REG16(0x0400), 0x1010}, {CCI_REG16(0x040c), 0x0000},
++	{CCI_REG16(0x080a), 0x0000}, {CCI_REG16(0x081c), 0x0018}, {CCI_REG16(0x0900), 0x3344},
++	{CCI_REG16(0x0b08), 0x0000}, {CCI_REG16(0x0d00), 0x0000}, {CCI_REG16(0x0d02), 0x0001},
++	{CCI_REG16(0x0d06), 0x0000}, {CCI_REG16(0x0d08), 0x0000}, {CCI_REG16(0x6000), 0x0085},
++	{CCI_REG16(0x6214), 0xf9f0}, {CCI_REG16(0x6218), 0xf9f0},
++};
++

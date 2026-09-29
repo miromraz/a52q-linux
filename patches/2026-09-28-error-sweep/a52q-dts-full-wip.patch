@@ -1,0 +1,230 @@
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index 1cee0c822..be9c20644 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -110,10 +110,49 @@ vreg_cam4_vana: regulator-cam4-vana {
+ 		enable-active-high;
+ 	};
+ 
++	/*
++	 * MIPI switch on gpio66: UW (S5K3L6) and macro (GC5035) share CSIPHY3.
++	 * Active-high, so mux state 0 drives gpio66 low (UW) and state 1 high
++	 * (macro), matching the board wiring.
++	 */
++	cam_mipi_mux: mux-controller {
++		compatible = "gpio-mux";
++		#mux-control-cells = <0>;
++		mux-gpios = <&tlmm 66 GPIO_ACTIVE_HIGH>;
++	};
++
++	video-mux {
++		compatible = "video-mux";
++		mux-controls = <&cam_mipi_mux>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		port@0 {
++			reg = <0>;	/* mux state 0: UW */
++			vmux_in_uw: endpoint {
++				remote-endpoint = <&cam_s5k3l6_ep>;
++			};
++		};
++
++		port@1 {
++			reg = <1>;	/* mux state 1: macro */
++			vmux_in_macro: endpoint {
++				remote-endpoint = <&cam_gc5035_macro_ep>;
++			};
++		};
++
++		port@2 {
++			reg = <2>;	/* output to CSIPHY3 */
++			vmux_out: endpoint {
++				remote-endpoint = <&csiphy3_ep>;
++			};
++		};
++	};
++
+ 	/* AP sleep state for the ADSP sensor framework, see smp2p_sleepstate.c */
+ 	smp2p-sleepstate {
+ 		compatible = "qcom,smp2p-sleepstate";
+-		qcom,smem-states = <&sleepstate_smp2p_out 0>;
++		qcom,smem-states = <&sleepstate_smp2p_out 12>;
+ 		interrupts-extended = <&sleepstate_smp2p_in 0 IRQ_TYPE_EDGE_RISING>;
+ 	};
+ 
+@@ -270,6 +309,13 @@ &camcc {
+ };
+ 
+ &cci0 {
++	/*
++	 * Keep the shared CAMNOC bus clocked while CCI's clocks are enabled, so
++	 * the cam_cc_camnoc_axi_clk branch does not wedge "stuck at on" when CCI
++	 * gates it after camss has already dropped its own bandwidth vote.
++	 */
++	interconnects = <&camnoc_virt MASTER_CAMNOC_HF0_UNCOMP 0 &camnoc_virt SLAVE_CAMNOC_UNCOMP 0>;
++	interconnect-names = "cci-camnoc";
+ 	status = "okay";
+ };
+ 
+@@ -293,6 +339,9 @@ camera@2d {
+ 		pinctrl-0 = <&cam_mclk0_default>;
+ 		pinctrl-names = "default";
+ 		power-domains = <&camcc TITAN_TOP_GDSC>;
++		orientation = <1>;
++		rotation = <270>;
++		lens-focus = <&cam_main_vcm>;
+ 
+ 		port {
+ 			cam_s5kgw1p_ep: endpoint {
+@@ -305,12 +354,49 @@ cam_s5kgw1p_ep: endpoint {
+ 	};
+ };
+ 
++/*
++ * Main camera VCM: AK7374 on QUP i2c9 (gpio46/47), downstream actuator_rear0
++ * (slave 0x18 8-bit). The module EEPROM (M24128, 16 KiB, AF/AWB/LSC cal) sits
++ * on the same bus at 0x50, the front module EEPROM at 0x51.
++ */
++&i2c9 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	cam_main_vcm: camera-lens@c {
++		compatible = "asahi-kasei,ak7374";
++		reg = <0x0c>;
++		vdd-supply = <&vreg_cam_l7>;
++		vio-supply = <&vreg_cam_l3>;
++	};
++
++	/* Main module OTP (M24128), same rails as the main sensor/VCM. */
++	cam_main_eeprom: eeprom@50 {
++		compatible = "atmel,24c64";
++		reg = <0x50>;
++		pagesize = <32>;
++		read-only;
++		vcc-supply = <&vreg_cam_l3>;
++	};
++
++	/*
++	 * Front module OTP (ON Semi N24S64B). Powered by the sensor vio rail,
++	 * so it only answers while the front sensor is powered.
++	 */
++	eeprom@51 {
++		compatible = "atmel,24c64";
++		reg = <0x51>;
++		pagesize = <32>;
++		read-only;
++		vcc-supply = <&vreg_cam_l3>;
++	};
++};
++
+ /* UW: Samsung S5K3L6, 4-lane, CSIPHY3. MCLK 19.2 MHz to match the vendor init PLL. */
+ &cci0_i2c1 {
+ 	camera@2d {
+ 		compatible = "samsung,s5k3l6xx";
+ 		reg = <0x2d>;
+-		mipi-sel-gpios = <&tlmm 66 GPIO_ACTIVE_LOW>;	/* MIPI_SEL: UW = low */
+ 		vddio-supply = <&vreg_cam_l3>;
+ 		vdda-supply = <&vreg_cam2_vana>;
+ 		vddd-supply = <&vreg_cam_l1>;
+@@ -324,21 +410,25 @@ camera@2d {
+ 		pinctrl-0 = <&cam_mclk2_default>;
+ 		pinctrl-names = "default";
+ 		power-domains = <&camcc TITAN_TOP_GDSC>;
++		orientation = <1>;
++		rotation = <270>;
+ 
+-		/* UW and macro share CSIPHY3 through the gpio66 MIPI switch (UW
+-		 * selects it LOW); only one links to CAMSS per DTB, and only UW is
+-		 * linked here. */
++		/* UW and macro share CSIPHY3 through the gpio66 MIPI switch,
++		 * modelled as a video-mux; this sensor is mux input 0. */
+ 		port {
+ 			cam_s5k3l6_ep: endpoint {
+ 				data-lanes = <0 1 2 3>;
+ 				link-frequencies = /bits/ 64 <259200000 480000000 595200000>;
+-				remote-endpoint = <&csiphy3_ep>;
++				remote-endpoint = <&vmux_in_uw>;
+ 			};
+ 		};
+ 	};
+ };
+ 
+ &cci1 {
++	/* See &cci0: shared CAMNOC bus vote to avoid the branch halt wedging. */
++	interconnects = <&camnoc_virt MASTER_CAMNOC_HF0_UNCOMP 0 &camnoc_virt SLAVE_CAMNOC_UNCOMP 0>;
++	interconnect-names = "cci-camnoc";
+ 	status = "okay";
+ };
+ 
+@@ -359,11 +449,18 @@ camera@1a {
+ 		pinctrl-0 = <&cam_mclk4_default>;
+ 		pinctrl-names = "default";
+ 		power-domains = <&camcc TITAN_TOP_GDSC>;
++		orientation = <0>;
++		/*
++		 * Stock sensor-position-roll 270 = Android SENSOR_ORIENTATION
++		 * 270 (clockwise); libcamera's rotation is counter-clockwise,
++		 * Android orientation = (360 - rotation) % 360.
++		 */
++		rotation = <90>;
+ 
+ 		port {
+ 			cam_imx616_ep: endpoint {
+ 				data-lanes = <0 1 2 3>;
+-				link-frequencies = /bits/ 64 <1028000000>;
++				link-frequencies = /bits/ 64 <516000000>;
+ 				remote-endpoint = <&csiphy2_ep>;
+ 			};
+ 		};
+@@ -385,6 +482,8 @@ camera@37 {
+ 		pinctrl-0 = <&cam_mclk1_default>;
+ 		pinctrl-names = "default";
+ 		power-domains = <&camcc TITAN_TOP_GDSC>;
++		orientation = <1>;
++		rotation = <270>;
+ 
+ 		port {
+ 			cam_gc5035_depth_ep: endpoint {
+@@ -396,11 +495,14 @@ cam_gc5035_depth_ep: endpoint {
+ 	};
+ 
+ 	/* macro: GalaxyCore GC5035, 2-lane. Shares CSIPHY3 with the UW sensor
+-	 * through the gpio66 MIPI switch, so only one is wired to CAMSS per DTB;
+-	 * UW is linked here, so this node has no CAMSS endpoint. */
++	 * through the gpio66 MIPI switch, modelled as a video-mux; this sensor
++	 * is mux input 1. */
+ 	camera@3f {
+ 		compatible = "galaxycore,gc5035";
+ 		reg = <0x3f>;
++		/* own sensor model name for userspace: libcamera loads
++		 * gc5035_macro.yaml instead of the depth camera's gc5035.yaml */
++		label = "gc5035_macro";
+ 		iovdd-supply = <&vreg_cam_l3>;
+ 		dvdd12-supply = <&vreg_cam_l4>;
+ 		/* VANA is gpio64 (vreg_cam3_vana), shared with the depth camera
+@@ -415,11 +517,14 @@ camera@3f {
+ 		pinctrl-0 = <&cam_mclk3_default>;
+ 		pinctrl-names = "default";
+ 		power-domains = <&camcc TITAN_TOP_GDSC>;
++		orientation = <1>;
++		rotation = <270>;
+ 
+ 		port {
+ 			cam_gc5035_macro_ep: endpoint {
+ 				data-lanes = <0 1>;
+ 				link-frequencies = /bits/ 64 <438000000>;
++				remote-endpoint = <&vmux_in_macro>;
+ 			};
+ 		};
+ 	};
+@@ -463,7 +568,7 @@ port@3 {
+ 			reg = <3>;
+ 			csiphy3_ep: endpoint {
+ 				data-lanes = <0 1 2 3>;
+-				remote-endpoint = <&cam_s5k3l6_ep>;
++				remote-endpoint = <&vmux_out>;
+ 			};
+ 		};
+ 	};

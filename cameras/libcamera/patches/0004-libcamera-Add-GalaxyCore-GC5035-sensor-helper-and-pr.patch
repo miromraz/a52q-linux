@@ -1,0 +1,65 @@
+From 33a6a9aa55fbd87ef48ca1b198f93e8c4f0adf21 Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:04:47 +0200
+Subject: [PATCH 04/12] libcamera: Add GalaxyCore GC5035 sensor helper and
+ properties
+
+Galaxy A52 5G depth camera. Black level 64 at 10 bits (measured and the
+stock Chromatix bls12). The kernel driver exposes the total gain
+(analogue LUT x fine pre-gain) with 1.0x = 256, so the gain model is
+linear code / 256. Gain delay of 2 frames measured.
+
+From cameras/depth/libcamera-0.7.2-gc5035.patch.
+---
+ src/ipa/libipa/camera_sensor_helper.cpp           | 13 +++++++++++++
+ src/libcamera/sensor/camera_sensor_properties.cpp | 13 +++++++++++++
+ 2 files changed, 26 insertions(+)
+
+diff --git a/src/ipa/libipa/camera_sensor_helper.cpp b/src/ipa/libipa/camera_sensor_helper.cpp
+index ab77246..d299386 100644
+--- a/src/ipa/libipa/camera_sensor_helper.cpp
++++ b/src/ipa/libipa/camera_sensor_helper.cpp
+@@ -520,6 +520,19 @@ public:
+ };
+ REGISTER_CAMERA_SENSOR_HELPER("gc08a3", CameraSensorHelperGc08a3)
+ 
++class CameraSensorHelperGc5035 : public CameraSensorHelper
++{
++public:
++	CameraSensorHelperGc5035()
++	{
++		/* 64 at 10 bits: measured, and the stock Chromatix bls12. */
++		blackLevel_ = 4096;
++		/* Driver: total gain (analogue LUT x fine pre-gain), 1.0x = 256. */
++		gain_ = AnalogueGainLinear{ 1, 0, 0, 256 };
++	}
++};
++REGISTER_CAMERA_SENSOR_HELPER("gc5035", CameraSensorHelperGc5035)
++
+ class CameraSensorHelperHm1246 : public CameraSensorHelper
+ {
+ public:
+diff --git a/src/libcamera/sensor/camera_sensor_properties.cpp b/src/libcamera/sensor/camera_sensor_properties.cpp
+index 8d52b62..adda82e 100644
+--- a/src/libcamera/sensor/camera_sensor_properties.cpp
++++ b/src/libcamera/sensor/camera_sensor_properties.cpp
+@@ -132,6 +132,19 @@ const CameraSensorProperties *CameraSensorProperties::get(const std::string &sen
+ 				.hblankDelay = 2
+ 			},
+ 		} },
++		{ "gc5035", {
++			.unitCellSize = { 1120, 1120 },
++			.testPatternModes = {
++				{ controls::draft::TestPatternModeOff, 0 },
++				{ controls::draft::TestPatternModeColorBars, 1 },
++			},
++			.sensorDelays = {
++				.exposureDelay = 2,
++				.gainDelay = 2,
++				.vblankDelay = 2,
++				.hblankDelay = 2
++			},
++		} },
+ 		{ "hi846", {
+ 			.unitCellSize = { 1120, 1120 },
+ 			.testPatternModes = {

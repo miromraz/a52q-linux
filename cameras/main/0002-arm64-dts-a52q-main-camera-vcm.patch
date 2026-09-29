@@ -1,0 +1,35 @@
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts	2026-09-27 11:28:19.692283696 +0200
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts	2026-09-27 11:28:19.808950921 +0200
+@@ -334,6 +334,7 @@
+ 		power-domains = <&camcc TITAN_TOP_GDSC>;
+ 		orientation = <1>;
+ 		rotation = <270>;
++		lens-focus = <&cam_main_vcm>;
+ 
+ 		port {
+ 			cam_s5kgw1p_ep: endpoint {
+@@ -346,6 +347,23 @@
+ 	};
+ };
+ 
++/*
++ * Main camera VCM: AK7374 on QUP i2c9 (gpio46/47), downstream actuator_rear0
++ * (slave 0x18 8-bit). The module EEPROM (M24128, 16 KiB, AF/AWB/LSC cal) sits
++ * on the same bus at 0x50, the front module EEPROM at 0x51.
++ */
++&i2c9 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	cam_main_vcm: camera-lens@c {
++		compatible = "asahi-kasei,ak7374";
++		reg = <0x0c>;
++		vdd-supply = <&vreg_cam_l7>;
++		vio-supply = <&vreg_cam_l3>;
++	};
++};
++
+ /* UW: Samsung S5K3L6, 4-lane, CSIPHY3. MCLK 19.2 MHz to match the vendor init PLL. */
+ &cci0_i2c1 {
+ 	camera@2d {

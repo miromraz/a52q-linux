@@ -1,0 +1,42 @@
+From cb2b0bbd48a67a3ce98e7ebae02d11b4e92b27b0 Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:08:16 +0200
+Subject: [PATCH 10/12] pipeline: simple: Reset VBLANK to the mode default
+ before configuring the soft IPA
+
+The soft IPA AGC lengthens the frame in low light. Sensor drivers only
+clamp VBLANK to the new mode's range on a format change, so the next
+session started at the previous, possibly 15 fps, frame duration while
+the AGC assumes the exposure range it is given belongs to the default
+VBLANK. Write the default VBLANK and refresh the control information
+before handing the controls to the IPA.
+---
+ src/libcamera/pipeline/simple/simple.cpp | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index 4f38e38..d4b8a9e 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -1620,6 +1620,21 @@ int SimplePipelineHandler::configure(Camera *camera, CameraConfiguration *c)
+ 	if (data->converter_) {
+ 		return data->converter_->configure(inputCfg, outputCfgs);
+ 	} else {
++		/*
++		 * Start from the nominal frame duration of the mode: the soft
++		 * IPA AGC extends VBLANK in low light, and sensor drivers keep
++		 * the current VBLANK across a mode change. The exposure range
++		 * depends on it, so refresh the control information.
++		 */
++		const ControlInfoMap &sensorCtrls = data->sensor_->controls();
++		auto vblank = sensorCtrls.find(V4L2_CID_VBLANK);
++		if (vblank != sensorCtrls.end()) {
++			ControlList ctrls(sensorCtrls);
++			ctrls.set(V4L2_CID_VBLANK, vblank->second.def());
++			data->sensor_->setControls(&ctrls);
++			data->sensor_->device()->updateControlInfo();
++		}
++
+ 		ipa::soft::IPAConfigInfo configInfo;
+ 		configInfo.sensorControls = data->sensor_->controls();
+ 		ret = data->sensor_->sensorInfo(&configInfo.sensorInfo);

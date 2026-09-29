@@ -1,0 +1,79 @@
+From da1f05469a140f3b385a54ded6482e95c83d65a0 Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Sun, 27 Sep 2026 12:08:22 +0200
+Subject: [PATCH 11/12] ipa: simple: awb: Keep the white balance gains across a
+ reconfiguration
+
+IPASoftSimple::configure() wipes the active state and Awb::configure()
+reset the gains to unity. Stats only arrive every 4th frame, so the
+first frames after any reconfiguration (a still taken on a different
+sensor mode than the viewfinder) came out with no white balance, i.e.
+green on a raw Bayer sensor. Seed the gains from the last converged
+ones instead.
+
+Port of the Pixel 4a libcamera-awb-persist-gains.patch.
+---
+ src/ipa/simple/algorithms/awb.cpp | 14 +++++++++++++-
+ src/ipa/simple/algorithms/awb.h   | 10 ++++++++++
+ 2 files changed, 23 insertions(+), 1 deletion(-)
+
+diff --git a/src/ipa/simple/algorithms/awb.cpp b/src/ipa/simple/algorithms/awb.cpp
+index 05155c8..fd95d23 100644
+--- a/src/ipa/simple/algorithms/awb.cpp
++++ b/src/ipa/simple/algorithms/awb.cpp
+@@ -27,7 +27,17 @@ int Awb::configure(IPAContext &context,
+ 		   [[maybe_unused]] const IPAConfigInfo &configInfo)
+ {
+ 	auto &gains = context.activeState.awb.gains;
+-	gains = { { 1.0, 1.0, 1.0 } };
++	/*
++	 * The IPA wipes activeState on every configure(), but a reconfiguration
++	 * does not change the scene or the sensor. An application that switches
++	 * the sensor mode around the shutter (previewing binned and restarting
++	 * at full resolution for the still) would then save a frame produced
++	 * with unity gains: stats only arrive every kStatPerNumFrames frames, so
++	 * the first frames of the new configuration carry no white balance at
++	 * all and come out heavily green on a raw Bayer sensor. Seed from the
++	 * last converged gains instead.
++	 */
++	gains = lastGains_.value_or(RGB<float>{ { 1.0f, 1.0f, 1.0f } });
+ 
+ 	return 0;
+ }
+@@ -84,6 +94,8 @@ void Awb::process(IPAContext &context,
+ 		sum.b() <= sum.g() / 4 ? 4.0f : static_cast<float>(sum.g()) / sum.b(),
+ 	} };
+ 
++	lastGains_ = gains;
++
+ 	RGB<double> rgbGains{ { 1 / gains.r(), 1 / gains.g(), 1 / gains.b() } };
+ 	context.activeState.awb.temperatureK = estimateCCT(rgbGains);
+ 	metadata.set(controls::ColourTemperature, context.activeState.awb.temperatureK);
+diff --git a/src/ipa/simple/algorithms/awb.h b/src/ipa/simple/algorithms/awb.h
+index ad993f3..a311c65 100644
+--- a/src/ipa/simple/algorithms/awb.h
++++ b/src/ipa/simple/algorithms/awb.h
+@@ -7,6 +7,8 @@
+ 
+ #pragma once
+ 
++#include <optional>
++
+ #include "algorithm.h"
+ 
+ namespace libcamera {
+@@ -29,6 +31,14 @@ public:
+ 		     IPAFrameContext &frameContext,
+ 		     const SwIspStats *stats,
+ 		     ControlList &metadata) override;
++
++private:
++	/*
++	 * Last converged gains. This object outlives the per-configure wipe of
++	 * IPAContext::activeState, so it carries white balance across a mode
++	 * switch. See the comment in configure().
++	 */
++	std::optional<RGB<float>> lastGains_;
+ };
+ 
+ } /* namespace ipa::soft::algorithms */

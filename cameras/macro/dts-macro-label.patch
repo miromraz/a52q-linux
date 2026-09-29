@@ -1,0 +1,20 @@
+From: Claude (macro camera agent) <noreply@anthropic.com>
+Subject: [PATCH] arm64: dts: qcom: sm7125-samsung-a52q: label the macro GC5035
+
+Give the macro camera its own sensor model name ("gc5035_macro") so
+libcamera selects its tuning instead of the depth camera's. Needs
+gc5035-macro.patch (driver reads "label").
+---
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -446,6 +446,9 @@
+ 	camera@3f {
+ 		compatible = "galaxycore,gc5035";
+ 		reg = <0x3f>;
++		/* own sensor model name for userspace: libcamera loads
++		 * gc5035_macro.yaml instead of the depth camera's gc5035.yaml */
++		label = "gc5035_macro";
+ 		iovdd-supply = <&vreg_cam_l3>;
+ 		dvdd12-supply = <&vreg_cam_l4>;
+ 		/* VANA is gpio64 (vreg_cam3_vana), shared with the depth camera

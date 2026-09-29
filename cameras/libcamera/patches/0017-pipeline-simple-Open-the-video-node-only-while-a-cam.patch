@@ -1,0 +1,162 @@
+From 2383a507dd34ef48c7b91f3ea81b7c874d75023e Mon Sep 17 00:00:00 2001
+From: a52q camera integration <jarda.kotesovec@proton.me>
+Date: Tue, 29 Sep 2026 01:08:38 +0200
+Subject: [PATCH] pipeline: simple: Open the video node only while a camera is
+ acquired
+
+The simple pipeline handler opens every V4L2 video node at match() time
+and keeps it open for the lifetime of the pipeline handler. On the a52q
+(qcom camss, SM7125) opening a capture video node runs
+v4l2_pipeline_pm_get() in video_open(), which powers the whole pipeline
+(CSIPHY/CSID/VFE and the TITAN GDSCs). As a result the camera hardware
+stays powered forever once a CameraManager exists (e.g. WirePlumber's
+libcamera monitor), draining power, and a node held open across s2idle
+triggers a VFE bus SMMU fault after a couple of suspend cycles so that
+every later capture returns zero frames until a cold reboot.
+
+Only the video node open powers the pipeline; the camss subdev .open
+handlers just initialise formats. So keep enumeration as is (the nodes
+are opened to probe formats and closed again once all cameras are
+registered) and open the video node again only when a camera is
+acquired, closing it when the last camera sharing it is released.
+
+Use the acquireDevice()/releaseDevice() overrides for this, as the
+uvcvideo pipeline handler does, and reference-count the open in the
+shared EntityData so cameras that share a video node (a52q UW and macro
+share CSIPHY3 through a video-mux) keep it open until all are released.
+generateConfiguration() for a raw stream may query the node before it is
+acquired, so open it just for that query when needed.
+
+With this, an idle WirePlumber no longer holds any /dev/video* open, the
+camss device runtime-suspends, and captures give 5/5 frames on every
+camera across repeated suspend cycles.
+---
+ src/libcamera/pipeline/simple/simple.cpp | 82 +++++++++++++++++++++++-
+ 1 file changed, 80 insertions(+), 2 deletions(-)
+
+diff --git a/src/libcamera/pipeline/simple/simple.cpp b/src/libcamera/pipeline/simple/simple.cpp
+index b883692..5cc8319 100644
+--- a/src/libcamera/pipeline/simple/simple.cpp
++++ b/src/libcamera/pipeline/simple/simple.cpp
+@@ -434,6 +434,9 @@ public:
+ protected:
+ 	int queueRequestDevice(Camera *camera, Request *request) override;
+ 
++	bool acquireDevice(Camera *camera) override;
++	void releaseDevice(Camera *camera) override;
++
+ private:
+ 	static constexpr unsigned int kMaxQueuedRequestsDevice = 4;
+ 	static constexpr unsigned int kNumInternalBuffers = 4;
+@@ -442,8 +445,20 @@ private:
+ 		std::unique_ptr<V4L2VideoDevice> video;
+ 		std::unique_ptr<V4L2Subdevice> subdev;
+ 		std::map<const MediaPad *, SimpleCameraData *> owners;
++		/*
++		 * Number of acquired cameras that need the video node open.
++		 * The node is only opened while streaming is possible, to let
++		 * the camss driver runtime-suspend the pipeline (and drop
++		 * power) while no application holds the camera.
++		 */
++		unsigned int videoUseCount = 0;
+ 	};
+ 
++	EntityData &videoEntityData(SimpleCameraData *data)
++	{
++		return entities_[data->entities_.back().entity];
++	}
++
+ 	SimpleCameraData *cameraData(Camera *camera)
+ 	{
+ 		return static_cast<SimpleCameraData *>(camera->_d());
+@@ -1431,11 +1446,27 @@ CameraConfiguration::Status SimpleCameraConfiguration::validate()
+ 			if (cfg.stride == 0)
+ 				return Invalid;
+ 		} else {
++			/*
++			 * The video node is only kept open while a camera is
++			 * acquired. generateConfiguration() may be called for a
++			 * raw stream before that, so open the node just for this
++			 * query if needed and close it again afterwards.
++			 */
++			V4L2VideoDevice *video = data_->video_;
++			bool opened = false;
++			if (!video->isOpen()) {
++				if (video->open() < 0)
++					return Invalid;
++				opened = true;
++			}
++
+ 			V4L2DeviceFormat format;
+-			format.fourcc = data_->video_->toV4L2PixelFormat(cfg.pixelFormat);
++			format.fourcc = video->toV4L2PixelFormat(cfg.pixelFormat);
+ 			format.size = cfg.size;
+ 
+-			int ret = data_->video_->tryFormat(&format);
++			int ret = video->tryFormat(&format);
++			if (opened)
++				video->close();
+ 			if (ret < 0)
+ 				return Invalid;
+ 
+@@ -2103,6 +2134,17 @@ bool SimplePipelineHandler::matchDevice(std::shared_ptr<MediaDevice> media,
+ 		registered = true;
+ 	}
+ 
++	/*
++	 * Enumeration probed the video nodes' formats with them open. Close
++	 * them again so that, until an application acquires a camera, no video
++	 * node is held open and the camss driver can runtime-suspend the
++	 * pipeline. The nodes are reopened on demand in acquireDevice().
++	 */
++	for (auto &[entity, edata] : entities_) {
++		if (edata.video && edata.video->isOpen())
++			edata.video->close();
++	}
++
+ 	return registered;
+ }
+ 
+@@ -2214,6 +2256,42 @@ void SimplePipelineHandler::releasePipeline(SimpleCameraData *data)
+ 	}
+ }
+ 
++/*
++ * Open the capture video node when a camera is acquired, and close it again
++ * when the last camera sharing it is released. The camss driver powers the
++ * whole pipeline (CSIPHY/CSID/VFE and the TITAN GDSCs) on video node open, so
++ * keeping the node closed while idle lets it runtime-suspend, saving power and
++ * avoiding a VFE SMMU fault seen when a node is held open across s2idle.
++ */
++bool SimplePipelineHandler::acquireDevice(Camera *camera)
++{
++	SimpleCameraData *data = cameraData(camera);
++	EntityData &edata = videoEntityData(data);
++
++	if (edata.videoUseCount == 0) {
++		int ret = edata.video->open();
++		if (ret < 0) {
++			LOG(SimplePipeline, Error)
++				<< "Failed to open " << edata.video->deviceNode()
++				<< ": " << strerror(-ret);
++			return false;
++		}
++	}
++
++	edata.videoUseCount++;
++	return true;
++}
++
++void SimplePipelineHandler::releaseDevice(Camera *camera)
++{
++	SimpleCameraData *data = cameraData(camera);
++	EntityData &edata = videoEntityData(data);
++
++	ASSERT(edata.videoUseCount);
++	if (--edata.videoUseCount == 0)
++		edata.video->close();
++}
++
+ REGISTER_PIPELINE_HANDLER(SimplePipelineHandler, "simple")
+ 
+ } /* namespace libcamera */

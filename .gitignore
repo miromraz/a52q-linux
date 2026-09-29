@@ -3,3 +3,9 @@ out/
 ref/
 patches/*.mbox
 *.img
+backup/
+backup-*/
+cameras/libcamera/build-work/
+lineage/*.zip
+lineage/*.tar
+__pycache__/
