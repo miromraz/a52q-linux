@@ -1,0 +1,96 @@
+From 4ba328c6a8ffd53a768d84266c82dfed4fa97860 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:24:13 +0200
+Subject: [PATCH 2/4] dt-bindings: usb: add Silicon Mitus SM5714 Type-C CC
+ detection
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The SM5714 is a combo PMIC integrating a charger, a fuel gauge and a
+Type-C/USB block, each on its own I2C address. Add a binding for the
+Type-C CC detection block, which reports cable attach and detach and is
+used to switch the USB role and to enable VBUS in host role.
+
+No public datasheet is available; the register layout is taken from the
+Samsung downstream driver.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../bindings/usb/siliconmitus,sm5714-cc.yaml  | 64 +++++++++++++++++++
+ 1 file changed, 64 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/usb/siliconmitus,sm5714-cc.yaml
+
+diff --git a/Documentation/devicetree/bindings/usb/siliconmitus,sm5714-cc.yaml b/Documentation/devicetree/bindings/usb/siliconmitus,sm5714-cc.yaml
+new file mode 100644
+index 000000000000..ae3f1aadd66d
+--- /dev/null
++++ b/Documentation/devicetree/bindings/usb/siliconmitus,sm5714-cc.yaml
+@@ -0,0 +1,64 @@
++# SPDX-License-Identifier: GPL-2.0-only OR BSD-2-Clause
++%YAML 1.2
++---
++$id: http://devicetree.org/schemas/usb/siliconmitus,sm5714-cc.yaml#
++$schema: http://devicetree.org/meta-schemas/core.yaml#
++
++title: Silicon Mitus SM5714 Type-C CC detection
++
++maintainers:
++  - Miroslav Mráz <miroslav.mraz@techmania.cz>
++
++description:
++  The SM5714 is a combo PMIC integrating a charger, a fuel gauge and a
++  Type-C/USB block. This binding describes the Type-C CC detection block,
++  which is exposed on its own I2C address. It reports cable attach and detach
++  and is used to switch the USB controller between device and host role and
++  to enable VBUS while in host role. USB Power Delivery is not handled.
++
++properties:
++  compatible:
++    const: siliconmitus,sm5714-cc
++
++  reg:
++    maxItems: 1
++
++  interrupts:
++    maxItems: 1
++
++  vbus-supply:
++    description:
++      VBUS regulator, enabled while the port operates as a host (source).
++
++  usb-role-switch:
++    $ref: /schemas/types.yaml#/definitions/phandle
++    description:
++      Phandle to the USB role switch (the USB controller) that is toggled
++      between device and host role on CC attach.
++
++required:
++  - compatible
++  - reg
++  - interrupts
++  - vbus-supply
++  - usb-role-switch
++
++additionalProperties: false
++
++examples:
++  - |
++    #include <dt-bindings/interrupt-controller/irq.h>
++
++    i2c {
++        #address-cells = <1>;
++        #size-cells = <0>;
++
++        typec@33 {
++            compatible = "siliconmitus,sm5714-cc";
++            reg = <0x33>;
++            interrupts-extended = <&tlmm 104 IRQ_TYPE_LEVEL_LOW>;
++            vbus-supply = <&vreg_usb_otg_vbus>;
++            usb-role-switch = <&usb_dwc3>;
++        };
++    };
++...
+-- 
+2.55.0
+

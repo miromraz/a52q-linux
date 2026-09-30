@@ -1,0 +1,200 @@
+From a5a50f4ed726979245350274668b2853460f8832 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:08:17 +0200
+Subject: [PATCH 2/2] regulator: add Samsung S2MPB03 camera PMIC driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Samsung S2MPB03 is a camera power management IC found on boards such
+as the Samsung Galaxy A52 (SM7125). It exposes seven LDO regulators over
+I2C, each with an enable bit and a 6-bit linear voltage selector in its
+LDOn_CTRL register.
+
+No public datasheet is available; the register layout and per-LDO
+voltage ranges are taken from the Samsung downstream driver.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ MAINTAINERS                           |   7 ++
+ drivers/regulator/Kconfig             |  12 +++
+ drivers/regulator/Makefile            |   1 +
+ drivers/regulator/s2mpb03-regulator.c | 113 ++++++++++++++++++++++++++
+ 4 files changed, 133 insertions(+)
+ create mode 100644 drivers/regulator/s2mpb03-regulator.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 72294ddfa5b7..509e6cb7a6da 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -24356,6 +24356,13 @@ F:	drivers/rtc/rtc-s5m.c
+ F:	include/dt-bindings/regulator/samsung,s2m*.h
+ F:	include/linux/mfd/samsung/
+ 
++SAMSUNG S2MPB03 CAMERA PMIC REGULATOR DRIVER
++M:	Miroslav Mráz <miroslav.mraz@techmania.cz>
++L:	linux-samsung-soc@vger.kernel.org
++S:	Maintained
++F:	Documentation/devicetree/bindings/regulator/samsung,s2mpb03.yaml
++F:	drivers/regulator/s2mpb03-regulator.c
++
+ SAMSUNG S3C24XX/S3C64XX SOC SERIES CAMIF DRIVER
+ M:	Sylwester Nawrocki <sylvester.nawrocki@gmail.com>
+ L:	linux-samsung-soc@vger.kernel.org
+diff --git a/drivers/regulator/Kconfig b/drivers/regulator/Kconfig
+index 89789ac7a786..0134bc0fb094 100644
+--- a/drivers/regulator/Kconfig
++++ b/drivers/regulator/Kconfig
+@@ -1460,6 +1460,18 @@ config REGULATOR_S2MPA01
+ 	 This driver controls Samsung S2MPA01 voltage output regulator
+ 	 via I2C bus. S2MPA01 has 10 Bucks and 26 LDO outputs.
+ 
++config REGULATOR_S2MPB03
++	tristate "Samsung S2MPB03 camera PMIC regulators"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  This driver controls the seven LDO regulators of the Samsung
++	  S2MPB03 camera power management IC over I2C. It is found on boards
++	  such as the Samsung Galaxy A52 (SM7125).
++
++	  This driver can also be built as a module. If so, the module will
++	  be called s2mpb03-regulator.
++
+ config REGULATOR_S2MPS11
+ 	tristate "Samsung S2MPS11/13/14/15/S2MPU02/05 voltage regulator"
+ 	depends on MFD_SEC_CORE || COMPILE_TEST
+diff --git a/drivers/regulator/Makefile b/drivers/regulator/Makefile
+index 5a764cec8df8..c6cc9c7e4e51 100644
+--- a/drivers/regulator/Makefile
++++ b/drivers/regulator/Makefile
+@@ -168,6 +168,7 @@ obj-$(CONFIG_REGULATOR_RTQ6752)	+= rtq6752-regulator.o
+ obj-$(CONFIG_REGULATOR_RTQ2208) += rtq2208-regulator.o
+ obj-$(CONFIG_REGULATOR_S2DOS05) += s2dos05-regulator.o
+ obj-$(CONFIG_REGULATOR_S2MPA01) += s2mpa01.o
++obj-$(CONFIG_REGULATOR_S2MPB03) += s2mpb03-regulator.o
+ obj-$(CONFIG_REGULATOR_S2MPS11) += s2mps11.o
+ obj-$(CONFIG_REGULATOR_S5M8767) += s5m8767.o
+ obj-$(CONFIG_REGULATOR_SC2730) += sc2730-regulator.o
+diff --git a/drivers/regulator/s2mpb03-regulator.c b/drivers/regulator/s2mpb03-regulator.c
+new file mode 100644
+index 000000000000..2b0fa49e2451
+--- /dev/null
++++ b/drivers/regulator/s2mpb03-regulator.c
+@@ -0,0 +1,113 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Samsung S2MPB03 camera PMIC: seven LDOs behind an I2C interface.
++ *
++ * Each LDOn_CTRL register holds the enable bit (7) and a 6-bit voltage
++ * selector. Layout taken from the Samsung downstream driver.
++ */
++#include <linux/i2c.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/regmap.h>
++#include <linux/regulator/driver.h>
++#include <linux/regulator/of_regulator.h>
++
++#define S2MPB03_REG_PMIC_ID	0x00
++#define S2MPB03_REG_LDO_CTRL(n)	(0x03 + (n))	/* n = 0..6 for LDO1..LDO7 */
++#define S2MPB03_REG_LDO_SLEW2	0x0b
++
++#define S2MPB03_LDO_ENABLE	BIT(7)
++#define S2MPB03_LDO_VSEL_MASK	GENMASK(5, 0)
++
++static const struct regulator_ops s2mpb03_ldo_ops = {
++	.list_voltage		= regulator_list_voltage_linear,
++	.map_voltage		= regulator_map_voltage_linear,
++	.get_voltage_sel	= regulator_get_voltage_sel_regmap,
++	.set_voltage_sel	= regulator_set_voltage_sel_regmap,
++	.enable			= regulator_enable_regmap,
++	.disable		= regulator_disable_regmap,
++	.is_enabled		= regulator_is_enabled_regmap,
++};
++
++#define S2MPB03_LDO(_n, _min, _step) {					\
++	.name		= "ldo" #_n,					\
++	.of_match	= of_match_ptr("ldo" #_n),			\
++	.regulators_node = of_match_ptr("regulators"),			\
++	.id		= (_n) - 1,					\
++	.vsel_reg	= S2MPB03_REG_LDO_CTRL((_n) - 1),		\
++	.enable_reg	= S2MPB03_REG_LDO_CTRL((_n) - 1),		\
++	.ops		= &s2mpb03_ldo_ops,				\
++	.type		= REGULATOR_VOLTAGE,				\
++	.owner		= THIS_MODULE,					\
++	.min_uV		= (_min),					\
++	.uV_step	= (_step),					\
++	.n_voltages	= S2MPB03_LDO_VSEL_MASK + 1,			\
++	.vsel_mask	= S2MPB03_LDO_VSEL_MASK,			\
++	.enable_mask	= S2MPB03_LDO_ENABLE,				\
++	.enable_time	= 150,						\
++}
++
++static const struct regulator_desc s2mpb03_regulators[] = {
++	S2MPB03_LDO(1, 700000, 12500),
++	S2MPB03_LDO(2, 700000, 12500),
++	S2MPB03_LDO(3, 700000, 25000),
++	S2MPB03_LDO(4, 700000, 12500),
++	S2MPB03_LDO(5, 1800000, 25000),
++	S2MPB03_LDO(6, 1800000, 25000),
++	S2MPB03_LDO(7, 1800000, 25000),
++};
++
++static const struct regmap_config s2mpb03_regmap_config = {
++	.reg_bits	= 8,
++	.val_bits	= 8,
++	.max_register	= S2MPB03_REG_LDO_SLEW2,
++};
++
++static int s2mpb03_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct regulator_config config = { .dev = dev };
++	struct regmap *regmap;
++	unsigned int id;
++	int i, ret;
++
++	regmap = devm_regmap_init_i2c(client, &s2mpb03_regmap_config);
++	if (IS_ERR(regmap))
++		return PTR_ERR(regmap);
++
++	ret = regmap_read(regmap, S2MPB03_REG_PMIC_ID, &id);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read PMIC ID\n");
++	dev_dbg(dev, "PMIC ID 0x%02x\n", id);
++
++	config.regmap = regmap;
++	for (i = 0; i < ARRAY_SIZE(s2mpb03_regulators); i++) {
++		struct regulator_dev *rdev;
++
++		rdev = devm_regulator_register(dev, &s2mpb03_regulators[i],
++					       &config);
++		if (IS_ERR(rdev))
++			return dev_err_probe(dev, PTR_ERR(rdev), "failed to register %s\n",
++					     s2mpb03_regulators[i].name);
++	}
++
++	return 0;
++}
++
++static const struct of_device_id s2mpb03_of_match[] = {
++	{ .compatible = "samsung,s2mpb03" },
++	{}
++};
++MODULE_DEVICE_TABLE(of, s2mpb03_of_match);
++
++static struct i2c_driver s2mpb03_driver = {
++	.driver = {
++		.name = "s2mpb03",
++		.of_match_table = s2mpb03_of_match,
++	},
++	.probe = s2mpb03_probe,
++};
++module_i2c_driver(s2mpb03_driver);
++
++MODULE_DESCRIPTION("Samsung S2MPB03 camera PMIC regulator driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

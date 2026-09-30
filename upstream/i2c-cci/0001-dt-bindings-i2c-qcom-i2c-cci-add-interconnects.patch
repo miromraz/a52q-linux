@@ -1,0 +1,38 @@
+From 4f91b8dace049e2ab9c91057352c47e9b457cbce Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:08:46 +0200
+Subject: [PATCH 1/2] dt-bindings: i2c: qcom,i2c-cci: add interconnects
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+CCI shares the cam_cc_camnoc_axi_clk branch with the camera subsystem. To
+keep that shared clock physically clocked while CCI is running, the driver
+holds a CAMNOC interconnect bandwidth vote. Document the optional
+interconnects and interconnect-names properties that describe this path.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml b/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
+index 1e8def25ec0e..38c9badbb0d3 100644
+--- a/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
++++ b/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
+@@ -61,6 +61,12 @@ properties:
+     minItems: 2
+     maxItems: 6
+ 
++  interconnects:
++    maxItems: 1
++
++  interconnect-names:
++    const: cci-camnoc
++
+   interrupts:
+     maxItems: 1
+ 
+-- 
+2.55.0
+

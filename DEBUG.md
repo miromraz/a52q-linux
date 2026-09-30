@@ -484,3 +484,471 @@ redo this from scratch in a future session - check git log for drivers/usb/typec
 - s5kgw1p probe once failed at boot: CCI "master 0 queue 0 timeout", chip id read -110 -> no /dev/media (camss
   waits for all sensors). Next boot OK. Intermittent; candidate fix = retry the chip-id read in probe.
 - State: running, cameras 5/5, owner confirmed camera works.
+
+## 2026-09-29 evening: audio q6asm probe noise, s5kgw1p retry, NFC verify
+Three-task sweep (device on test UKI a52qtest_0.26.0929.4 = #11).
+
+### 1. Audio "q6asm DSP returned error[1]" / MultiMedia1 no backend — HARMLESS PROBE
+- Real speaker playback for miro is CLEAN: `pw-play` -> Speaker (MM1->QUIN_MI2S->TAS2562)
+  produces zero q6asm errors. Mic + headphones sinks all present (UCM-managed, no raw MM nodes).
+- Trigger: PipeWire/WirePlumber opens the MM1 front-end PCM (hw:0,0) and runs hw_params+prepare
+  during ALSA node init, BEFORE any back-end is routed. The SM7125 ADSP refuses to map DSP memory
+  for a front-end with no back-end graph (DSP error[1]) -> cascades to Memory_map_regions failed /
+  Buffer Allocation -22 / prepare -12, plus the ASoC-core "no backend DAIs enabled for MultiMedia1".
+  Reproducible on demand: `systemctl --user restart wireplumber` (miro) -> the block reappears.
+  Raw `aplay -D hw:0,0` does NOT reproduce (only PipeWire's mmap open+prepare pattern does).
+- Verdict: NOT a kernel/DSP bug (kernel correctly reports an FE prepared with no BE; q6asm-dai.c
+  prepare is stock upstream). Fix belongs in the userspace audio profile. Suppressing it in-kernel
+  would mask real misconfig, so no kernel change.
+- Fix (device profile): WirePlumber drop-in pins the ASoC output nodes to one rate so WP stops
+  re-opening/re-preparing MM1 to renegotiate (this is what caused the recurring post-boot hits, e.g.
+  the +567 s one). File: device-a52q profile
+  `mkosi.extra/usr/share/wireplumber/wireplumber.conf.d/51-a52q-no-fe-probe.conf`
+  (audio.rate=48000 + api.alsa.disable-batch on ~alsa_output.*). Live copy deployed to the phone at
+  `/etc/wireplumber/wireplumber.conf.d/51-a52q-no-fe-probe.conf` for verification.
+- Residual: ONE benign probe line remains at WP/node init (PipeWire opens each sink once to
+  configure it); cannot be removed from userspace without breaking init, and is expected (routeless
+  FE prepare refused by the DSP). pw-play playback stays clean (0 errors).
+
+### 2. s5kgw1p intermittent probe timeout — FIXED (kernel)
+- Root cause: probe releases reset then immediately reads chip-id; the sensor sometimes NAKs that
+  first I2C access -> CCI "master 0 queue 0 timeout", cci_read -110 -> probe fails -> no /dev/media
+  (camss waits for all sensors). Sibling s5k3l6xx never fails: it uses a reset pulse + settle.
+- Fix: commit `media: i2c: s5kgw1p: retry chip-id read on power-up` (obs/sm7125 f45e8a436) — retry
+  the chip-id read up to 4x, power-cycling the sensor between attempts. checkpatch --strict clean.
+- Built incrementally (vermagic 6.14.7-sm7125, matches the #11 image), stripped + zstd, deployed over
+  the sysext `.../kernel/drivers/media/i2c/s5kgw1p.ko.zst` (old saved at
+  /var/lib/a52q-s5kgw1p-retry-backup.ko.zst).
+- Verified: 5 consecutive `systemctl reboot`s -> `cam -l` (as root) shows 5/5 cameras every time,
+  s5kgw1p detected each boot, 0 CCI timeouts. (Retry path did not need to fire in these 5 boots —
+  the timeout is intermittent; the retry is the safety net.)
+- Note: post-reboot `cam -l` as miro fails "/dev/media0 Permission denied" — miro isn't in group
+  `video` and relies on a logind uaccess ACL that lags early boot; unrelated to the camera fix. Root
+  enumeration is unaffected.
+
+### 3. NFC (s3fwrn5) — power-up + NCI init + version OK; RF poll times out (no-flash limitation)
+- No firmware file present (required): `sec_s3fwrn5_firmware.bin` absent -> s3fwrn5_firmware_init
+  fails -> post_setup skips bootloader/FW mode (driver does NOT flash, correct).
+- DEV_UP succeeds (netlink genl, no neard needed): NCI CORE_RESET+CORE_INIT complete. dmesg
+  (nci +p): manufact_id 0xe (Samsung), manufact_specific_info 0x2160062 (chip fw/version info),
+  RF interfaces enumerated, max_routing_table_size 1170. So NCI init succeeds and version is read.
+- START_POLL consistently times out at RF_DISCOVER (opcode 0x103): RF_DISCOVER_MAP returns status
+  0x0 but RF_DISCOVER gets no response in 5 s (-110), then the chip wedges until DEV_DOWN. The NFC
+  IRQ (msmgpio 37) fires for reset/init/discover-map, so the i2c+irq path works. Not a DT/irq issue.
+- Conclusion: control-plane works; RF discovery on the resident firmware does not start without the
+  proprietary RF-register (rfreg) config, which we deliberately do not load. Reported as a limitation
+  (no fix without the forbidden blob); no kernel change. Bar "power up + start poll without errors"
+  is partially met: power-up yes, poll no.
+- Test script: ~/linux-a52q/nfc-nl-test.py (genl, genl DEV_UP/START_POLL/STOP_POLL/DEV_DOWN, correct
+  cmd nums DEV_UP=2 DEV_DOWN=3 START_POLL=6 STOP_POLL=7, PROTOCOLS attr=3).
+
+### 2026-09-29 — NFC (s3fwrn5) RF poll: root cause found = S3NRN4V variant needs DUAL_OPTION + single-byte FW_CFG clock
+- Chip is Samsung **S3NRN4V** (vendor blobs: sec_s3nrn4v_*), a later part than the S3FWRN5/S3FWRN82 our
+  in-tree driver handled. The mainline rf-config path (START/SET/STOP_RFREG 0x26/0x22/0x27 + 3-byte
+  FW_CFG 0x28) is the OLD scheme; it is also only reached during a firmware flash, so with no
+  sec_s3fwrn5_firmware.bin present post_setup returned early and the chip got ZERO RF/clock config →
+  RF_DISCOVER(0x103) times out (-110) and wedges. Two missing pieces:
+  1) reference clock: vendor libnfc-sec-vendor.conf sets FW_CFG_CLK_SPEED=0x11 (19.2 MHz PLL) via the
+     single-byte FW_CFG; mainline sent the 3-byte form with 0xff. Without 0x11 NCI init completes but
+     RF_DISCOVER never answers.
+  2) RF calibration: S3NRN4V loads it with proprietary **DUAL_OPTION (GID 0x0f, oid 0x2a)** sub-ops
+     GET_VER/START/SET/STOP, the hwreg+swreg blobs MERGED into one stream (HW first), checksum = sum of
+     merged u32 LE & 0xffff. Not the SET_RFREG sequence.
+- Upstream fix exists: "[PATCH v4/v5 0/6] nfc: s3fwrn5: support the S3NRN4V" (Jorijn van der Graaf,
+  lore 20260807021001.239389-1-jorijnvdgraaf@catcrafts.net). Applied patches 1,3,5 to obs/sm7125 and
+  hand-adapted the i2c.c/uart.c hunks (our tree predates the gpiod conversion): FW_CFG from ->init,
+  DUAL_OPTION upload from post_setup, samsung,s3nrn4v compatible + variant match data, pvdd-supply.
+- Vendor blobs extracted from super/vendor (loop-mounted /dev/sda25 @ off 4642570240): /vendor/etc/nfc/
+  sec_s3nrn4v_{hwreg(3232B),swreg(336B)}.bin, kept in ~/linux-a52q/nfc-vendor-blobs/. Installed on phone
+  at /var/lib/firmware/samsung/s3nrn4v/{hwreg,swreg}.bin (firmware_class.path=/var/lib/firmware). NEVER
+  provide sec_s3fwrn5_firmware.bin (that would flash the chip).
+- Build OK (M=drivers/nfc/s3fwrn5, vermagic 6.14.7-sm7125 matches; checkpatch --strict clean).
+  DTB (compatible=samsung,s3nrn4v, pvdd-supply=<&vreg_nfc_pvdd>) builds.
+- STATUS: built, NOT verified on device (phone unplugged/owner away). Committed on obs/sm7125:
+  a4d12a5 of_match_ptr, 6c8a10a bindings, 07145bc pvdd, b6e9d4b S3NRN4V support (Jorijn van der Graaf,
+  his SoB + mine, "[backported to 6.14]" on the i2c/uart-adapted ones), c3cb676 a52q DT enable NFC
+  (mine). checkpatch --strict: 0 errors all five (patch1 has 1 warning = valid upstream commit-ref in
+  the backported message). Modules build (vermagic 6.14.7-sm7125 matches); a52q dtb builds.
+- RETEST when phone reachable (ssh a52r):
+  1. Deploy DTB: ~/linux-a52q/uki-test.sh <VER> <vmlinuz.efi> \
+     ~/src/linux-sm7125/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dtb  (safe one-try UKI, falls back
+     to stock on boot-fail); flock /tmp/claude-1000/a52phone.lock around the reboot. This makes the node
+     bind as samsung,s3nrn4v (needs vmlinuz.efi of the running kernel).
+  2. Deploy the two rebuilt .ko (drivers/nfc/s3fwrn5/{s3fwrn5,s3fwrn5_i2c}.ko) via sysext-dev.sh (or
+     md5-verified copy to /var/tmp + reload). Blobs already at /var/lib/firmware/samsung/s3nrn4v/.
+  3. python3 nfc-nl-test.py -> expect dmesg "calibration data update: success" + START_POLL: OK, then
+     STOP_POLL/DEV_DOWN OK, DEV_UP again OK (responsive bar).
+  Module-only alt (no DTB): temporarily map samsung,s3fwrn5-i2c -> S3NRN4V in i2c.c of-table, rebuild,
+  reload; clean copy at /tmp/claude-1000/i2c.c.clean. (Earlier attempt aborted: corrupted .ko transfer
+  -> userspace insmod SIGSEGV, then USB-net link flap; kernel was not crashed.)
+
+## 2026-09-29 — mainline v7.3-rc5 a52q bringup (branch a52q/mainline)
+
+Worktree `~/src/linux-a52q-mainline` (branch `a52q/mainline`, base 72d3fcf802c4 =
+v7.3-rc5). 23 commits. Built with Debian GCC 14 (`kbuild-trixie-img`, committed from
+`kbuild-trixie`), O=`~/linux-a52q/out-mainline`, EFI_ZBOOT=y, modules zstd.
+KERNELRELEASE = 7.3.0-rc5-sm7125.
+
+Stack, in order:
+- fixes: watchdog stop-on-sleep, ath10k freq0 demote, i2c-cci interconnects (4)
+- pmic: s2mpb03 regulator, sm5714 fuel-gauge + Type-C CC, all with bindings (6)
+- NFC s3fwrn5 S3NRN4V series 1-5 (Jorijn v4; skipped 0 cover + 6 fairphone DT)
+- Erikas DT v3 1-3: A52/A72 compatibles, tzmem SHM-bridge disable, initial DT
+- NEW ports (mine): FTS5CU56A touch driver + binding; SM5714 charger driver +
+  binding; a52q DTS on-top (touch i2c7, charger/fg i2c4, Type-C i2c11, tsp_int).
+
+Port fixes made:
+- charger: `power_supply_config.of_node` removed in mainline → `fwnode = dev_fwnode()`
+  (like the fg driver); dropped unused of_gpio.h/platform_device.h; added error
+  checks to every regmap_read in get_property; dropped dead reg_st3.
+- charger binding: current props need `$ref .../uint32` or dtbs_check rejects the cells.
+- DTS tsp_int: `function` must be `"gpio"` (Erikas' "normal" fails sc7180 pinctrl schema).
+
+Verified (all observed, not claimed):
+- Build: `make vmlinuz.efi qcom/sm7125-samsung-a52q.dtb modules` → OK. GCC 16 host
+  hangs pre-ramoops on this phone, so GCC 14 docker only.
+- dtbs_check (a52q dtb): 0 warnings after the tsp_int + binding-type fixes.
+- checkpatch --strict (my commits): DTS clean; charger/bindings clean bar the
+  advisory "MAINTAINERS?"; touch driver 142 cosmetic CHECK/WARN (CamelCase locals,
+  blank lines, banner comment) 0 errors — imported downstream style, pre-upstream TODO.
+
+Artifacts: `~/linux-a52q/mainline-stage/7.3.0-rc5-sm7125/` (vmlinuz.efi,
+dtbs/qcom/sm7125-samsung-a52q.dtb, modules-*.tar.zst = 794 mods vermagic-matched,
+README with uki-test.sh steps). Phone was unplugged — NOT test-booted.
+
+Deferred (stubbed nothing, left out):
+- DSI panel s6e3fc3/ams646yd04: needs full old→_multi mipi_dsi API conversion
+  (57 seqs ×2 variants). simple-framebuffer covers display for the test boot, and a
+  mis-converted panel could black-screen (worse), so deferred. TOP display follow-up.
+- Wi-Fi/BT/modem: Erikas base lays out mpss/wlan/adsp reserved-memory but does not
+  enable the remoteprocs/wifi node. DT-only + firmware staging; boot-risky (bad mpss
+  hangs) — validate before flashing. HIGH follow-up (drivers already in mainline).
+- Cameras (gc5035/s5k3l6xx/imx616/s5kgw1p+retry, ak737x/OIS, camss C-PHY/video-mux,
+  s2mpb03 cam-pmic i2c-gpio node), audio (Quinary MI2S/tas2562 fsync/wcd fixes),
+  smp2p sleepstate (check Acayan patchwork 1170900). LOW per priority.
+
+## 2026-09-30 — NFC (s3fwrn5 / S3NRN4V) VERIFIED ON DEVICE — RF poll works
+On-device verification of the obs/sm7125 f45e8a436..620f8a39a NFC series (no code change needed).
+
+Pre-checks (source): core.c post_setup: S3NRN4V variant -> s3fwrn5_nci_rf_configure_dual(hwreg,swreg)
+then `return 0` — the flash path (s3fwrn5_firmware_init "sec_s3fwrn5_firmware.bin") is unreachable for
+this variant. i2c.c enables pvdd itself via devm_regulator_get_enable(dev,"pvdd") (DT regulator-always-on
+removed). Driver requests samsung/s3nrn4v/{hwreg,swreg}.bin; phone firmware_class.path=/var/lib/firmware/
+-> resolves to /var/lib/firmware/samsung/s3nrn4v/{hwreg(3232B),swreg(336B)}.bin (present). Forbidden flash
+files sec_s3fwrn5_firmware.bin / sec_s3fwrn5_rfreg.bin ABSENT (confirmed).
+
+Build (kbuild-trixie, Debian GCC14): M=drivers/nfc/s3fwrn5 modules + a52q dtb. vermagic both .ko =
+"6.14.7-sm7125 SMP preempt mod_unload aarch64" (matches running #11). dtb has compatible samsung,s3nrn4v.
+
+Root cause of the previous "RF poll times out" bar: the BOOTED test UKI a52qtest_0.26.0929.4 still carried
+the OLD dtb (nfc@27 compatible = samsung,s3fwrn5-i2c) -> driver bound as S3FWRN5 variant, so post_setup
+never ran the DUAL_OPTION RF-cal path. Fix = boot the new dtb.
+
+Deploy: stripped+zstd .ko (aarch64-strip --strip-debug, zstd -19) md5-verified to phone
+(s3fwrn5.ko.zst f736fd85..., s3fwrn5_i2c.ko.zst 893d05a3...); old .ko.zst backed up at
+/var/lib/a52q-nfc-s3nrn4v-backup/; copied into a52qdev sysext kernel/drivers/nfc/s3fwrn5/; depmod OK
+(temp lib->usr/lib symlink so `depmod -b /var/lib/extensions/a52qdev` finds usr/lib/modules).
+Kernel image: extracted the .linux PE section from the running UKI (rp=258048 rs=14041600,
+md5 8722c28a...) — NOT rebuilt — so image+modules are one build. uki-test.sh 0.26.0930.1 <that vmlinuz>
+<new dtb> -> a52qtest_0.26.0930.1+1.efi. Rebooted under flock a52phone.lock, reconnected ~90s, touched
+/run/dev-alive.
+
+Verify (all observed): booted nfc@27 compatible = samsung,s3nrn4v; loaded .ko md5 = new build.
+nfc-nl-test.py x3: every run DEV_UP OK / START_POLL OK / STOP_POLL OK / DEV_DOWN OK, chip stays
+responsive across runs. dmesg: manufact_id 0xe (Samsung), "nfc0: calibration data already current"
+(DUAL_OPTION GET_VER matched -> no re-upload, NO firmware flash), nci_rf_disc_rsp_packet status 0x0
+(RF_DISCOVER now answers — previously -110 timeout+wedge), rf_deactivate_rsp status 0x0. No tag present
+(none expected). CONCLUSION: NFC control+RF plane fully working on device.
+
+No regression: cam -l (root) 5/5 cameras; wld0 connected (192.168.100.131, SSID <home-ssid>); sound card 0
+"Galaxy A52" present; usb0 172.16.42.1 up. Test UKI marked GOOD (a52qtest_0.26.0930.1.efi, +1 counter
+dropped; boot-complete.target active) -> stays default. No new commits (verification only).
+
+## 2026-09-30 — mainline v7.3-rc5 a52q: coprocessors/Wi-Fi/BT, DSI panel, cleanups (branch a52q/mainline)
+
+Six commits on top of the 23-commit stack. All built with the Debian GCC14 docker
+(`kbuild-trixie-img`, O=out-mainline, KERNELRELEASE 7.3.0-rc5-sm7125), under
+`flock /tmp/claude-1000/kbuild.lock`. Build- and schema-verified ONLY — phone was
+unplugged, so NOTHING here was boot-tested.
+
+### Task 1 — DT coprocessor/radio enablement (1 commit, 93734523)
+common.dtsi: enable qupv3_id_0/1 (the already-present i2c4/7/11 + BT uart sit under
+them and were latently dead without this), ipa (memory-region), remoteproc_adsp
+(memory-region), wifi (ath10k WCN3990 supplies), uart3 + WCN3988 bluetooth child +
+qup_uart3_sleep pin state. a52q.dts: status=okay + firmware-name for ipa,
+remoteproc_adsp, remoteproc_mpss; firmware-name for gpu_zap_shader, venus, bluetooth
+(paths qcom/sm7125/a52q/*.mbn; BT sm7125/a52q/apnv11.bin). gpu/venus/gmu are
+enabled-by-default in mainline sc7180 (no status override needed; the zap-shader
+already carries memory-region=<&gpu_mem>).
+LEFT OUT: remoteproc_cdsp — mainline sc7180.dtsi has NO cdsp remoteproc node (only
+mpss + adsp), so cdsp cannot be enabled DT-only.
+Binding fix: the v7.3 sc7180 pinctrl schema requires per-pin subnodes for
+qup-uart3-sleep-state (cts/rts/tx/rx-pins, each with pins+function+bias); the 6.14
+pinmux{}/pinconf-*{} split fails dtbs_check ('oneOf conditional failed').
+
+### Task 2 — DSI panel (3 commits: binding e0581e, driver a31135, dts bec931)
+Ported the fork panel-samsung-s6e3fc3.c (map220v) to v7.3 — AMS646YD04 variant only
+(a52q's panel; dropped the unused ams667ym01). Converted the whole init/enable/disable
+path to the mipi_dsi_*_multi() API. v7.3 also dropped drm_panel_init() and
+of_drm_get_panel_orientation(): use devm_drm_panel_alloc() and, since the a52q panel
+node sets no rotation, dropped orientation handling. New binding samsung,s6e3fc3.yaml
+(vddio/vci supplies, reset-gpio, port). common.dtsi enables dispcc/mdss/mdss_dsi0/phy
++ panel skeleton + mdss pin states; a52q.dts sets the panel compatible okay.
+simple-framebuffer kept (msm aperture handoff on probe).
+Init-sequence fidelity: `panel-initseq-diff.py` (staged) extracts every DCS/generic
+write payload + control op + delay from ams646yd04_init_sequence() in both the fork
+and the ported source, normalises only the API spelling, and diffs. Result:
+**MATCH: 46 ops identical (byte-for-byte)**.
+
+### Task 3 — audio (sm8250 sndcard / QUINARY MI2S -> tas2562 + WCD9380): NOT DONE, blocked
+The 6.14 audio card depends on the sm8250-style LPASS codec macros (rx/tx/va macro),
+SoundWire controllers (swr1/swr2) and the `sound` node — which the fork BACKPORTED
+into its sc7180.dtsi (`grep -c 'rxmacro:|vamacro:|swr1:|sound:' sc7180.dtsi` = 6 in
+the fork, 0 in mainline v7.3). Mainline sc7180 uses the older lpass_cpu I2S model +
+q6afe/q6asm APR instead. Reproducing the macros/SoundWire/sound infrastructure is
+SoC-level DT work (affects every sc7180 board), boot-risky, and unverifiable with the
+phone unplugged — beyond board-level enablement. The tas2562 QUINARY-MI2S speaker
+path also needs that infrastructure, so it is deferred too, and the fork's sm8250.c
+Quinary-MI2S + tas2562 frame-sync tweak (fork ba923ef48) has no DT consumer without
+it. Deferred as a separate SoC-level effort that needs device testing.
+
+### Task 4 — tidy (2 commits: charger ff6b75c, touch e3e17b7)
+sm5714-charger.c: replaced every bare `(0x1 << n)` status/control bit with a named
+BIT() define next to its register (STATUS1_VBUSOK/VBUSOVP, STATUS2_NOBAT/CHGON/TOPOFF,
+CNTL1_ENCHG, CHGCNTL4_AUTOSTOP). Field masks (0x7<<4 torch, 0x3, 0x7F) left as-is —
+not single bits. checkpatch --strict clean.
+stmfts_fts5cu56a.c: cosmetic-only to checkpatch --strict 0 errors/0 warnings (wrapped
+>100-col lines, snake_case locals/cmd buffers, sysfs *_show + DEVICE_ATTR_RO, max_t,
+dropped one brace, block-comment style, removed commented-out dead code, GPL). 29
+CHECKs left (alignment / spaces-around-'+' / unnecessary-parens / cast-space —
+justified). Behaviour preserved: normalised token-diff vs HEAD shows only the 4
+intended semantic edits (max->max_t x2, DEVICE_ATTR->_RO x5, brace drop, GPL v2->GPL).
+Delegated the grind to a coder subagent, then re-verified independently.
+
+### Verification (all observed)
+- `make vmlinuz.efi modules qcom/sm7125-samsung-a52q.dtb` -> OK. The config change
+  (new panel module) regenerated autoconf.h and forced a one-time near-full module
+  rebuild; watch disk (peaked ~2.9 GB free).
+- dtbs_check a52q dtb -> 0 warnings (both after task 1's pin-state fix and final).
+- dt_binding_check samsung,s6e3fc3.yaml -> clean (example compiles).
+- checkpatch --strict on the 6 new commits -> 0 errors; only the advisory
+  "MAINTAINERS?" on new files and the justified touch CHECKs.
+- panel init byte-diff -> MATCH, 46 ops.
+- Panel module vermagic = `7.3.0-rc5-sm7125 SMP preempt mod_unload aarch64`.
+
+### Artifacts (refreshed, one build)
+mainline-stage/7.3.0-rc5-sm7125/: vmlinuz.efi, dtbs/qcom/sm7125-samsung-a52q.dtb,
+modules-7.3.0-rc5-sm7125.tar.zst (795 modules, INSTALL_MOD_STRIP=1, 9 MB), plus
+panel-initseq-diff.py. uki-test.sh now takes the uname as an optional 4th arg
+(default 6.14.7-sm7125); pass 7.3.0-rc5-sm7125 for this kernel.
+
+## OIS MCU hardware-tested and DT-wired (2026-09-30)
+First live test of the STM32G main-camera OIS. The MCU answers on i2c10 0x62 and
+the a52q-ois-mcu driver's full init + servo sequence works. Verified against the
+running 6.14.7-sm7125 (test UKI a52qtest_0.26.0930.1); no reboot, all changes
+non-persistent.
+
+- Build: `a52q-ois-mcu.ko` (drivers/media/i2c, M=) + `ois-harness.ko` (built from
+  cameras/ois/test/ois-harness.c in a throwaway M= dir), vermagic 6.14.7-sm7125.
+  No i2c-tools/gpiod on the phone, so reads/writes go through a tiny i2c-dev
+  ctypes helper (staged /var/tmp/oisreg.py) on the harness's /dev/i2c-10, I2C_RDWR
+  (works while the driver is bound). camwork/oisproto.py deps were NOT on the phone.
+- GOTCHA (cost the most time): load order matters. The harness registers the
+  vdd->vaf / vio->vcustom supply aliases AFTER it creates the i2c client, so if the
+  DRIVER is already loaded the client binds with DUMMY regulators; runtime_resume
+  then runs android_init over bit-banged i2c on an UNPOWERED MCU and hangs on 1 s
+  SCL-stretch timeouts, dragging the main sensor (20-002d) into PM "error". The
+  harness header says it: load harness FIRST, driver second. Recover the sticky
+  sensor PM error with `s5kgw1p` driver unbind/bind (echo on/auto does NOT clear it).
+- Rails/GPIOs (step 1): MCU needs VAF (vreg_cam_l7) + VIO 1.8 V (vreg_cam_l3) +
+  AVDD1P8 (gpio63); all come up when the main sensor is runtime-resumed
+  (`echo on > /sys/bus/i2c/devices/20-002d/power/control`). NRST=tlmm32,
+  BOOT0=tlmm43 (kept low = main flash). Correct sequence: insmod harness, force
+  sensor on, insmod driver, `echo on > .../10-0062/power/control` -> resumes active
+  in ~2 s = android_init succeeded.
+- Probe (step 2): fw ver 0x00F8/0x007C = "PSC1NK1M" (matches phone blob), fwsts
+  0x00FC = a6110300 (not 4451/broken), err 0x0004 = 0000. All driver writes landed:
+  gyro orient 0x0240 = 000100, angle comp 0x0348/0x03D8 = 0681553f (0.834),
+  oissel 0x00BE = 01, mode 0x0002 = 01, ctrl 0x0000 = 01. gyro offset 0x0248 = 0,0
+  (EFS cal still not extracted - known gap). XGG/YGG 0x0254 = f628dc3edc...e13e =
+  the MCU's own factory cal (driver skips its nvmem write, cells absent - fine).
+- Servo (step 3): servo ON (ctrl 01, status 0x02) -> hall/gyro words 0x0082,0x0084,
+  0x0094..0x009c continuously fluctuate (e.g. 0x9a swings -16133..-16395, 0x82
+  -21..44) = live control loop. Servo OFF (0x0000=00 -> ctrl 00, status 0x01) ->
+  every one of those words FREEZES identical sample-to-sample. Toggling back on
+  resumes the fluctuation, err stays 0000. This is the requested proof (phone can't
+  be physically moved): the servo drives the hall/gyro registers, and 0x0000=0x00
+  stops it. Status reg cleanly tracks 0x01 idle <-> 0x02 servoing.
+- libcamera capture (step 4): NOT usable this session. main = cam5 (s5kgw1p 20-002d,
+  cci0 bus0); UW = cam1 (s5k3l6xx 21-002d, cci0 bus1) - both legitimately @0x2d, not
+  a duplicate. `cam` starts the pipeline but delivers NO frames for ANY camera (main,
+  UW), with the OIS driver fully removed and no kernel/camss error and no held
+  /dev/video* - an OIS-independent camss/session condition (a reboot restores 5/5 per
+  prior history). So no OIS regression could be attributed, but on/off comparison
+  couldn't be captured. The AK7375 "lens init failed, device ''" line is pre-existing
+  enumeration noise, not the blocker.
+- Cleanup: servo off + suspend, rmmod harness+driver (bus10 gone), sensor rebind left
+  it suspended/clean. i2c_qcom_cci never touched/reloaded. dev-alive kept.
+- Commits (obs/sm7125, linux-sm7125): f87b68721 driver OF match table
+  (samsung,a52q-ois-mcu); 0af2cfd75 a52q DTS i2c-cam-ois node (i2c-gpio gpio86/87,
+  ois@62, vdd=l7 vio=l3, reset=tlmm32 boot0=tlmm43). checkpatch --strict clean, dtb
+  builds clean. DTB NOT booted - for the next test UKI.
+- STILL UNVERIFIED / next: (1) boot the new DTB and confirm DT probe/bind. (2) The
+  DT node has no runtime-resume trigger - the harness used a sensor->OIS device link;
+  the DT path needs the driver to create that link from a phandle (or v4l2 subdev
+  integration) or the OIS never resumes on camera open. (3) EFS gyro offset
+  (0x0248) still hardcoded 0. (4) real OIS-on/off image comparison (needs a working
+  capture / reboot).
+
+## 2026-09-30 — mainline v7.3-rc5 a52q FIRST BOOT-TEST — did NOT boot; boot-count auto-recovered
+Test-booted the 7.3.0-rc5-sm7125 build (vmlinuz.efi + sm7125-samsung-a52q.dtb, mainline-stage/) as
+UKI a52qtest_0.26.0930.2+1 (one-try counter), stock 6.14.7 known-good UKI (0930.1) backed up to
+/var/tmp/a52qtest_0.26.0930.1.efi.bak (sha256 7237fbd9…). 7.3 modules (795, vermagic 7.3.0-rc5-sm7125)
+installed as an ADDITIONAL dir in the a52qdev sysext (usr/lib/modules/7.3.0-rc5-sm7125/, depmod -b),
+6.14.7-sm7125 dir left untouched; 6.14 confirmed healthy (system running, usb0+wld0 up) before reboot.
+
+Result: 7.3 did NOT reach boot-complete. Reboot 23:46:08 → back 23:48:36 (~2m28s) on STOCK 6.14.7
+(BengalOS_0.26.0925.2), i.e. systemd-boot decremented the counter (UKI now …0930.2+0-1 = bad) and
+auto-fell-back. No forced reset was needed. dev-alive absent on the fallback boot (expected).
+
+Per-subsystem table for 7.3 — NOTHING could be recorded live: the kernel never reached userspace
+(no USB-net, no Wi-Fi, no boot-complete), so every subsystem is UNOBSERVED.
+| subsystem | 7.3 result | evidence / key line |
+|-|-|-|
+| boot to userspace | FAIL | never reached boot-complete.target; UKI marked bad (+0-1); fell back to stock |
+| display panel (dsi/drm/bl) | UNOBSERVED | kernel did not reach userspace |
+| touch (fts5cu56a) | UNOBSERVED | " |
+| USB-net (usb0) | FAIL/UNOBSERVED | gadget is built-in; never came up → died before networking svc |
+| Wi-Fi (wld0/ath10k) | UNOBSERVED | " |
+| Bluetooth (hci0) | UNOBSERVED | " |
+| battery/charger (sm5714) | UNOBSERVED | " |
+| Type-C (sm5714-cc) | UNOBSERVED | " |
+| NFC (s3nrn4v) | UNOBSERVED | " |
+| remoteproc adsp/mpss/ipa | UNOBSERVED (suspect) | new DT nodes; "bad mpss hangs" per this file |
+| GPU zap (adreno 618) | UNOBSERVED | " |
+| modem (mmcli) | UNOBSERVED | " |
+
+Root-cause forensics (no console/serial on this phone):
+- pstore/ramoops EMPTY after the failed boot → NO kernel panic was captured. A panic persists to
+  ramoops; a silent HANG (spin on a clock/regulator/genpd/remoteproc wait) does not. So 7.3 hung,
+  it did not oops. Nothing to root-cause from logs → step-4 fix precondition not met.
+- DM_VERITY/initrd ruled OUT: stock initrd (7125 entries) is MODULES-FREE (0 *.ko, no lib/modules);
+  built-in UFS/EROFS/SQUASHFS mount rootfs; and this boot uses usr=unprotected (winning
+  systemd.image_policy cmdline arg), so dm-verity (=m) is not on the boot path and initrd module
+  vermagic is irrelevant. CONFIG_DM_VERITY=m in both 6.14 and 7.3.
+- Leading suspects = the newly DT-enabled, never-boot-tested subsystems from the 2026-09-30 six-commit
+  additions (remoteproc mpss/adsp, ipa, s6e3fc3 DSI panel, wifi/bt). No evidence channel exists to
+  pinpoint which, and blind DT-bisect reboots without a console violate the
+  research-before-flash-iteration rule, so not attempted. Owner has no key-press cost here (boot-count
+  auto-recovers), but a single boots/doesn't-boot bit per rebuild is weak signal without a console.
+
+Decision: no rebuild/commit made (no log-based root cause). Restored the 0930.1 known-good UKI (below).
+
+## 2026-09-30 — pstore/ramoops persistence: ROOT-CAUSED as intrinsic DRAM decay (NOT DT-fixable)
+Goal was to make ramoops survive a reset so the 7.3 hang could be captured. Result: pstore
+persistence is impossible on this device via DT alone. Two independent failure modes, one of
+them a bootloader/firmware property we cannot touch. Steps 4-5 (boot 7.3, read log) NOT attempted.
+
+Method: test UKIs built from the running 0930.1 kernel (.linux PE section extracted so image+modules
+stay one build) + a modified a52q dtb; markers via /dev/pmsg0 + /dev/kmsg; raw DRAM read/written via
+/dev/mem (STRICT_DEVMEM allows the no-map region since it is not System RAM). All under a52phone.lock,
+ssh never held across a reboot, boot-count auto-fallback intact. ~8 reboots.
+
+FINDING 1 — EFI boot chain was clobbering the region (real, fixed by no-map, but SECONDARY):
+- Stock (no no-map): U-Boot efi_dt_fixup marks the ramoops reg EFI_BOOT_SERVICES_DATA (reusable),
+  so zboot decompression / systemd-boot allocate over it. dmesg: "found existing invalid buffer".
+- Add `no-map;` to ramoops@b4600000 -> U-Boot marks it EFI_RESERVED. Confirmed via `efi=debug`:
+  `efi: 0x0000b4600000-0x0000b46fffff [Reserved | ... |WB| ]` (was BOOT_SERVICES_DATA). The
+  "invalid buffer" message disappears. The carve-out is driven by the DT embedded in the UKI
+  (changing the UKI dtb changed the EFI memmap) — U-Boot's OWN built-in DT does NOT need changing.
+- uki-test.sh gained a generic `EXTRA_CMDLINE=` env (appends extra boot args; DEBUG_CMDLINE still
+  works). Used for efi=debug here; intended for initcall_debug on the 7.3 test.
+
+FINDING 2 — intrinsic DRAM decay across the reboot (DOMINANT, NOT DT-fixable):
+- Even with no-map (region provably protected from clobber), a written pattern does NOT survive a
+  normal `systemctl reboot`. Clean, uncontaminated measurement: wrote a deterministic 4 KiB pattern
+  via /dev/mem to the DUMP-zone data area (0xb4602000 — a region a clean boot never rewrites),
+  verified it in DRAM by re-reading before reboot, rebooted, re-read:
+     13.78% of BITS flipped, 66.3% of BYTES corrupted (mostly isolated 1-bit flips per byte).
+  (pmsg-zone tests gave the same ~15%/68%, but the pmsg zone is contaminated by the new boot's own
+   logging, so the dump-zone number is the trustworthy one.)
+- This corrupts every ramoops zone signature (4-byte sig, ~5 bits flip) -> ramoops rejects the
+  buffers -> fresh init -> /sys/fs/pstore always empty. Confirmed pmsg + console markers never
+  survive, no-map OR mapped.
+- MAPPED mode (stock 0930.1) also fails: clean mapped->mapped reboot leaves pstore empty and prints
+  NO "found existing buffer" (sig destroyed too). So decay is INTRINSIC to the reset path, not caused
+  by no-map. The earlier one-off "found existing invalid buffer, size 25, start 285" was coincidental
+  clobber leaving sig-like bytes, not evidence of low decay.
+- Why no DT knob helps: mem-type (WC/cached/uncached) cannot change DRAM cell retention; ecc-size
+  (ramoops RS, corrects ecc_size/2 bytes per 128-byte block) cannot fix ~85/128 corrupted bytes;
+  relocate — decay is uniform (a refresh-timing loss in the reset window), a different address will
+  not retain better. Stock Android's sec_debug works at this same address only because Samsung's
+  reset keeps DDR in self-refresh; the mainline path (kernel PSCI reset -> Samsung PBL/XBL -> U-Boot)
+  loses refresh for a window and ~14% of bits decay.
+
+CONCLUSION / DECISION:
+- A working fix requires the bootloader/firmware to preserve DDR self-refresh across the reset
+  (Samsung signed PBL/XBL, or U-Boot). U-Boot rebuild = Odin = not allowed; PBL/XBL = signed.
+  Per the "if the fix needs U-Boot, stop and report" guardrail: STOPPED. No DT commit made — no-map
+  alone yields no observable benefit (pstore still empty), so it was reverted from both trees
+  (obs/sm7125, a52q/mainline) rather than shipped as a non-working partial fix.
+- The 7.3.0-rc5 hang therefore cannot be captured via pstore on this device. Prior session already
+  showed the same empty-pstore-after-7.3 result; this session explains WHY and rules out the DT path.
+- OPEN LEADS for a future session (need a real observation channel — pstore is out):
+  (1) whether the mainline reset issues a hard vs warm reset (qcom PON reset-type / reboot-mode in
+      the SoC DT) — if mainline picks a colder reset than stock, changing the reset type could
+      preserve DDR self-refresh and is Linux-side; (2) a USB/serial-gadget early console from U-Boot
+      (env has serial_gadget) as an alternative live channel for the 7.3 hang.
+
+Restore (verified on a52r): default = a52qtest_0.26.0930.1.efi (sha256 7237fbd9…, matches .bak);
+test UKIs removed; uname 6.14.7-sm7125; cam -l = 5/5; Wi-Fi wld0 connected; usb0 172.16.42.1 up;
+NFC nfc-nl-test.py DEV_UP/START/STOP/DOWN all OK; /run/dev-alive touched. Phone /var/tmp test scripts
+cleaned. NOTE: the local dtb build in ~/src/linux-sm7125 ran `make oldconfig` non-interactively and
+may have altered that tree's .config to defaults (BTF off etc.) — irrelevant to OBS builds.
+
+## 2026-09-30 — netconsole debug-kernel STAGED, stopped before boot-test (laptop shutdown)
+Step 0 (warm-reset DRAM): NEGATIVE. Wrote a 200x pmsg marker via /dev/pmsg0, set
+`echo warm > /sys/kernel/reboot/mode`, `systemctl reboot`. Phone returned on 6.14.7;
+ramoops registered (0x100000@0xb4600000, ecc:0) but /sys/fs/pstore EMPTY — marker did
+NOT survive. Warm reset does not preserve DDR self-refresh either; confirms the
+intrinsic-decay finding. pstore stays out; netconsole is the only channel.
+
+Debug build (PUSHED + OBS pkg made; NOT yet boot-tested):
+- git: branch obs/a52q-mainline-dbg = obs/a52q-mainline(9aa2b3e) + commit 675f71432a70
+  "debian: a52q defconfig debug variant (netconsole + g_ether built-in)". ONLY edits
+  arch/arm64/configs/a52q_defconfig: +CONFIG_NETCONSOLE=y, +CONFIG_NETCONSOLE_DYNAMIC=y,
+  USB_ETH n->y. (USB_GADGET/LIBCOMPOSITE/U_ETHER/PRINTK_TIME already =y; DWC3 DUAL_ROLE=y.)
+  KERNELRELEASE unchanged 7.3.0-rc5-sm7125. Created via temp-index plumbing in
+  ~/pixel-a4-linux/kernel/linux-fork WITHOUT touching its working tree/index. Pushed to
+  github.com/miromraz/linux.
+- OBS: package home:realni/linux-sm7125-mainline-dbg created (scmsync
+  #obs/a52q-mainline-dbg). At stop it was still "blocked / service in progress"
+  (scmsync clone). NEXT: `osc results home:realni linux-sm7125-mainline-dbg` -> wait
+  succeeded (~13 min). If stuck, re-save meta to force resync.
+
+Pre-verified for the boot (no wasted boot): g_ether.host_addr is a valid module_param
+(u_ether.h USB_ETHERNET_MODULE_PARAMETERS), netdev = usb0; netconsole cmdline format
+[src-port]@[src-ip]/[dev],[tgt-port]@<tgt-ip>/[tgt-mac]; netconsole has a NETDEV_UP/
+REGISTER notifier (deferred attach) so gadget-enumeration-vs-init order won't drop the
+target.
+
+EXACT NEXT STEPS (resume):
+1. Extract kernel+dtb from the .deb: `osc getbinaries home:realni linux-sm7125-mainline-dbg
+   Debian_13 aarch64` into scratchpad; `dpkg-deb -x linux-image-7.3.0-rc5-sm7125_*.deb x/`;
+   vmlinuz = x/boot/vmlinuz-7.3.0-rc5-sm7125 (EFI zboot), dtb =
+   x/usr/lib/linux-image-7.3.0-rc5-sm7125/qcom/sm7125-samsung-a52q.dtb.
+2. Capture side (laptop): run ~scratchpad/a52-nicwatch.sh in bg (keeps the A52 NIC MAC
+   02:a5:2c:00:00:01 parked in netns a52 @172.16.42.2/24 even if the phone hangs, since
+   ssh/a52-netns won't run then). Then, BEFORE reboot:
+   `sudo ip netns exec a52 socat -u UDP-RECV:6666,reuseaddr - | tee <scratchpad>/netconsole.log &`
+3. Boot: EXTRA_CMDLINE='netconsole=6665@172.16.42.1/usb0,6666@172.16.42.2/02:a5:2c:00:00:01 \
+   initcall_debug ignore_loglevel g_ether.host_addr=02:a5:2c:00:00:01' \
+   flock /tmp/claude-1000/a52phone.lock ~/linux-a52q/uki-test.sh 0.26.0930.4 <vmlinuz> <dtb> \
+   7.3.0-rc5-sm7125 ; then `ssh a52r systemctl reboot` (don't hold ssh). Boot-count
+   auto-falls-back to stock in 2.5-10 min if 7.3 hangs; wait up to 20 min.
+4. Read netconsole.log last lines + initcall_debug to locate the hang; fix per Step 2.
+
+Safety state at stop: phone on 6.14.7-sm7125, default /boot/EFI/Linux/a52qtest_0.26.0930.1.efi
+present (unchanged; NO 7.3 test UKI was ever installed — uki-test.sh never ran). Backup
+/var/tmp/a52qtest_0.26.0930.1.efi.bak intact (sha256 7237fbd9…). No watchers/listeners left
+running; OBS poll killed. Nothing to restore.

@@ -4,17 +4,23 @@
 # version than every other entry and a one-try boot counter (+1). If it fails to
 # reach boot-complete, systemd-boot marks it bad and falls back on the next boot.
 # (U-Boot exposes EFI variables read-only, so `bootctl set-oneshot` cannot be used.)
-# Usage: uki-test.sh VERSION [vmlinuz.efi] [dtb]    e.g. uki-test.sh 0.26.0925.5
+# Usage: uki-test.sh VERSION [vmlinuz.efi] [dtb] [uname]
+#   e.g. uki-test.sh 0.26.0925.5
+#   uname must equal the kernel's KERNELRELEASE; defaults to the 6.14 build.
+#   For the mainline build pass 7.3.0-rc5-sm7125 as the 4th argument.
+#   DEBUG_CMDLINE=1 drops quiet/splash and prints the boot log on the panel
+#   (earlycon on the U-Boot EFI framebuffer + fbcon) for hangs before ramoops.
 set -euo pipefail
 VER=$1
 K=${2:-$HOME/src/linux-sm7125/arch/arm64/boot/vmlinuz.efi}
 D=${3:-$HOME/src/linux-sm7125/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dtb}
+U=${4:-6.14.7-sm7125}
 H=a52r
 STOCK=/boot/EFI/Linux/BengalOS_0.26.0925.2_x86-64.efi
 
 scp -q "$K" $H:/var/tmp/vmlinuz.efi
 scp -q "$D" $H:/var/tmp/a52q.dtb
-ssh $H VER="$VER" STOCK="$STOCK" 'bash -s' <<'EOF'
+ssh $H VER="$VER" STOCK="$STOCK" U="$U" DBG="${DEBUG_CMDLINE:-}" EXTRA="${EXTRA_CMDLINE:-}" 'bash -s' <<'EOF'
 set -euo pipefail
 cd /var/tmp
 # .initrd offset/size from the stock UKI's PE section table (not 4 KiB aligned)
@@ -40,9 +46,14 @@ PY
 rm -f /boot/EFI/Linux/a52qtest_*
 sed -e "s/^IMAGE_VERSION=.*/IMAGE_VERSION=\"$VER\"/" -e "s/^VERSION_ID=.*/VERSION_ID=$VER/" \
     -e "s/^PRETTY_NAME=.*/PRETTY_NAME=\"a52q kernel test $VER\"/" /etc/os-release > osrel
-tr ' ' '\n' < /proc/cmdline | grep -v '^kexectest=' | tr '\n' ' ' > cmdline
+tr ' ' '\n' < /proc/cmdline | grep -v '^kexectest=' > cmdline.l
+[ -n "$DBG" ] && { grep -vxE 'quiet|splash' cmdline.l > cmdline.d; mv cmdline.d cmdline.l
+	printf '%s\n' earlycon=efifb console=tty0 ignore_loglevel printk.time=1 >> cmdline.l; }
+# EXTRA_CMDLINE: extra space-separated boot args (e.g. efi=debug initcall_debug)
+[ -n "$EXTRA" ] && printf '%s\n' $EXTRA >> cmdline.l
+tr '\n' ' ' < cmdline.l > cmdline
 ukify build --linux=vmlinuz.efi --initrd=initrd --devicetree=a52q.dtb --cmdline=@cmdline \
-    --os-release=@osrel --uname=6.14.7-sm7125 --output="/boot/EFI/Linux/a52qtest_$VER+1.efi" | tail -1
+    --os-release=@osrel --uname="$U" --output="/boot/EFI/Linux/a52qtest_$VER+1.efi" | tail -1
 rm -f initrd
 sync; ls /boot/EFI/Linux/; df -h /boot | tail -1
 EOF

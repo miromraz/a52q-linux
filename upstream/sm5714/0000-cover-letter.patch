@@ -1,0 +1,53 @@
+From 229126ca5ac4e11d8734497430e83f3fe881b7f4 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:28:44 +0200
+Subject: [PATCH 0/4] Silicon Mitus SM5714 combo PMIC: fuel gauge and Type-C CC
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Silicon Mitus SM5714 is a combo PMIC integrating a battery charger,
+a fuel gauge and a Type-C/USB block. On the Samsung Galaxy A52 (SM7125)
+each block is wired to a separate I2C address, and the Type-C block sits
+on a different I2C bus from the charger and fuel gauge, so the blocks are
+described as independent I2C devices rather than as MFD sub-nodes.
+
+This series adds the two blocks that are self-contained and verified
+working on the Galaxy A52:
+
+  - the fuel gauge (battery voltage, current, temperature, capacity);
+  - the Type-C CC detection block (attach/detach -> USB role switch plus
+    VBUS in host role; no USB PD).
+
+The charger block (charging control, OTG VBUS regulator, torch LED) is
+not included yet; it needs more cleanup before it is ready.
+
+No public datasheet is available; register layouts come from the Samsung
+downstream driver and were verified on the device.
+
+Patches 1-2 add the bindings, patches 3-4 the drivers.
+
+Miroslav Mráz (4):
+  dt-bindings: power: supply: add Silicon Mitus SM5714 fuel gauge
+  dt-bindings: usb: add Silicon Mitus SM5714 Type-C CC detection
+  power: supply: add Silicon Mitus SM5714 fuel gauge driver
+  usb: typec: add Silicon Mitus SM5714 Type-C CC driver
+
+ .../power/supply/siliconmitus,sm5714-fg.yaml  |  42 ++++
+ .../bindings/usb/siliconmitus,sm5714-cc.yaml  |  64 ++++++
+ MAINTAINERS                                   |  14 ++
+ drivers/power/supply/Kconfig                  |  11 +
+ drivers/power/supply/Makefile                 |   1 +
+ drivers/power/supply/sm5714-fg.c              | 152 +++++++++++++
+ drivers/usb/typec/Kconfig                     |  13 ++
+ drivers/usb/typec/Makefile                    |   1 +
+ drivers/usb/typec/sm5714-cc.c                 | 203 ++++++++++++++++++
+ 9 files changed, 501 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/power/supply/siliconmitus,sm5714-fg.yaml
+ create mode 100644 Documentation/devicetree/bindings/usb/siliconmitus,sm5714-cc.yaml
+ create mode 100644 drivers/power/supply/sm5714-fg.c
+ create mode 100644 drivers/usb/typec/sm5714-cc.c
+
+-- 
+2.55.0
+

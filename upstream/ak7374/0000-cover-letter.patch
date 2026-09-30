@@ -1,0 +1,26 @@
+From: Miroslav Mráz <miroslav.mraz@techmania.cz>
+Subject: [PATCH 0/2] media: i2c: ak7375: add support for AK7374
+
+The AK7374 is a voice coil motor camera lens actuator from the same
+family as the AK7375 already supported by this driver. It is
+register-compatible but uses 10-bit position values (shifted left by 6
+in the 16-bit position register) with a 1024-step focus range, so it
+slots in as a new chip definition plus a compatible string.
+
+It is the main-camera (S5KGW1P, 64MP) focus actuator on the Samsung
+Galaxy A52 (a52q, SM7125). Register values are taken from the vendor
+CamX actuator driver and verified against the hardware.
+
+Tested on the Galaxy A52 with kernel 6.14 (libcamera simple pipeline,
+camss); not yet retested on 7.3.
+
+Miroslav Mráz (2):
+  dt-bindings: media: asahi-kasei,ak7375: add AK7374
+  media: i2c: ak7375: add support for AK7374
+
+ .../bindings/media/i2c/asahi-kasei,ak7375.yaml |  1 +
+ drivers/media/i2c/ak7375.c                     | 15 +++++++++++++++
+ 2 files changed, 16 insertions(+)
+
+--
+2.51.0

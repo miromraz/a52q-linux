@@ -1,0 +1,33 @@
+From d1809e945c37cbffc59fa57c0eabf7f3d6e9b761 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Wed, 30 Sep 2026 10:53:26 +0200
+Subject: [PATCH 1/2] dt-bindings: media: asahi-kasei,ak7375: add AK7374
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The AK7374 is a voice coil motor lens actuator from the same family,
+used as the main-camera focus actuator on the Samsung Galaxy A52. It is
+register-compatible with the AK7375 but uses 10-bit position values. Add
+its compatible string.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml        | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml b/Documentation/devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml
+index fe312cc6a873..8cf24c858af8 100644
+--- a/Documentation/devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml
++++ b/Documentation/devicetree/bindings/media/i2c/asahi-kasei,ak7375.yaml
+@@ -17,6 +17,7 @@ properties:
+   compatible:
+     enum:
+       - asahi-kasei,ak7345
++      - asahi-kasei,ak7374
+       - asahi-kasei,ak7375
+ 
+   reg:
+-- 
+2.55.0
+

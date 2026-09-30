@@ -1,0 +1,34 @@
+From 10f51dfafd40919856d7c2ee8091762cc1d325bc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:09:07 +0200
+Subject: [PATCH 0/2] i2c: qcom-cci: keep the shared CAMNOC clock alive
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On sm7125 (Galaxy A52) the CCI I2C controller shares cam_cc_camnoc_axi_clk
+with the camera subsystem. When CCI gates that clock while the CAMNOC bus
+is unclocked, the branch halt FSM wedges "stuck at on" and later camera
+captures return no frames. Fix it by holding a small CAMNOC interconnect
+bandwidth vote whenever CCI's clocks are enabled.
+
+Patch 1 documents the new optional interconnects properties; patch 2 adds
+the vote in the driver. The interconnect path is optional, so existing
+platforms without it are unaffected.
+
+Note: the related system-sleep fix (routing suspend through
+pm_runtime_force_suspend/resume) is already present in mainline as of
+v7.3-rc5, so only the interconnect work remains.
+
+
+Miroslav Mráz (2):
+  dt-bindings: i2c: qcom,i2c-cci: add interconnects
+  i2c: qcom-cci: keep CAMNOC interconnect voted while clocked
+
+ .../devicetree/bindings/i2c/qcom,i2c-cci.yaml |  6 ++++
+ drivers/i2c/busses/i2c-qcom-cci.c             | 36 ++++++++++++++++++-
+ 2 files changed, 41 insertions(+), 1 deletion(-)
+
+-- 
+2.55.0
+

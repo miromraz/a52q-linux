@@ -1,0 +1,11 @@
+"André Draszik" <andre.draszik@linaro.org>
+Conor Dooley <conor+dt@kernel.org>
+devicetree@vger.kernel.org
+Krzysztof Kozlowski <krzk+dt@kernel.org>
+Liam Girdwood <lgirdwood@gmail.com>
+linux-kernel@vger.kernel.org
+linux-samsung-soc@vger.kernel.org
+Mark Brown <broonie@kernel.org>
+"Miroslav Mráz" <miroslav.mraz@techmania.cz>
+Rob Herring <robh@kernel.org>
+./scripts/get_maintainer.pl: file '/home/realni/linux-a52q/upstream/s2mpb03/0000-cover-letter.patch' doesn't appear to be a patch.  Add -f to options?
