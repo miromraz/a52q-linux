@@ -952,3 +952,18 @@ Safety state at stop: phone on 6.14.7-sm7125, default /boot/EFI/Linux/a52qtest_0
 present (unchanged; NO 7.3 test UKI was ever installed — uki-test.sh never ran). Backup
 /var/tmp/a52qtest_0.26.0930.1.efi.bak intact (sha256 7237fbd9…). No watchers/listeners left
 running; OBS poll killed. Nothing to restore.
+
+## Camera upstreaming — state at stop (2026-09-30)
+Branch a52q/cameras in ~/src/linux-upstream @ 72d3fcf802c4 (7.3-rc5). Two commits, nothing else touched.
+- ak7374 VCM: DONE. Fits existing upstream ak7375 driver as new compatible (struct already has
+  has_standby/mode_standby). 2 patches (binding enum + driver cdef/OF entry), MAINTAINERS unchanged
+  (same files). checkpatch --strict 0/0/0 both. dt_binding_check clean (SCHEMA+DTEX+DTC pass).
+  Series in ~/linux-a52q/upstream/ak7374/ (cover + 0001 + 0002 + to-cc.txt).
+- s5k3l6xx, imx616, s5kgw1p: NOT STARTED as patches. Good news: modern drivers already exist in
+  ~/src/linux-sm7125 obs/sm7125 (v4l2-cci, cci_reg_sequence, subdev active state, pm_runtime,
+  fwnode device_parse, get_selection). Remaining: copy .c/.h into tree + Kconfig/Makefile, write
+  DT-binding YAML from scratch (none exist; the *.yaml in cameras/ are libcamera tuning, not DT),
+  MAINTAINERS entries, checkpatch/dt_binding_check/W=1, register-table old-vs-new diff, cover+to-cc.
+- gc5035: NOT STARTED. Old-style driver (no CCI helpers) from Figa 2020 v4 base; needs the most work.
+  Reuse Figa v4 from patchwork (kernel.org API) for authorship/base; keep his From:/SoB if using his patch.
+No scratch O= build dir was created (stopped before compile-testing). No git gc/repack run.
