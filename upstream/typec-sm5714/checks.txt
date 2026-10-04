@@ -1,0 +1,10 @@
+# checkpatch.pl --strict (typec-sm5714) — regenerated 2026-10-03, usbflap debounce folded into CC driver
+## v1-0001-dt-bindings-usb-add-Silicon-Mitus-SM5714-Type-C-C.patch
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+## v1-0002-usb-typec-add-Silicon-Mitus-SM5714-Type-C-CC-driv.patch
+WARNING: DT compatible string "siliconmitus,sm5714-cc" appears un-documented -- check ./Documentation/devicetree/bindings/
+## v1-0003-dt-bindings-usb-add-Silicon-Mitus-SM5714-MUIC-dat.patch
+clean
+## v1-0004-usb-typec-mux-add-Silicon-Mitus-SM5714-MUIC-data-.patch
+WARNING: DT compatible string "siliconmitus,sm5714-muic" appears un-documented -- check ./Documentation/devicetree/bindings/
+Summary: 0 errors. Warnings are the known cross-patch DT-compat/MAINTAINERS false positives.

@@ -1,0 +1,9 @@
+"David S. Miller" <davem@davemloft.net>
+Eric Dumazet <edumazet@google.com>
+Jakub Kicinski <kuba@kernel.org>
+linux-arm-msm@vger.kernel.org
+linux-kernel@vger.kernel.org
+Manivannan Sadhasivam <mani@kernel.org>
+netdev@vger.kernel.org
+Paolo Abeni <pabeni@redhat.com>
+Simon Horman <horms@kernel.org>

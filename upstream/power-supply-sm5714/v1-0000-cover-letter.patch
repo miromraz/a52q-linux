@@ -1,0 +1,45 @@
+From 9583bd505b221b8c118435bd2d260ea2bb11e78f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Sat, 3 Oct 2026 15:34:09 +0200
+Subject: [PATCH v1 0/5] power: supply: add Silicon Mitus SM5714 fuel gauge and charger
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add bindings and drivers for the fuel-gauge and switching-charger blocks
+of the Silicon Mitus SM5714 PMIC used on the Samsung Galaxy A52 4G
+(a52q, SM7125). The Type-C CC and MUIC blocks of the same chip are sent
+as a separate series to the USB/typec tree.
+
+The fuel gauge reports voltage, current, temperature and state of charge;
+it also reads charge_full_design from an optional monitored-battery node
+and derives charge_now/charge_full so UPower can present energy. The
+charger advertises its USB port type (UNKNOWN/SDP) from the VBUS-OK bit
+so UPower recognises it as a line-power charger.
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Miroslav Mráz (5):
+  dt-bindings: power: supply: add Silicon Mitus SM5714 fuel gauge
+  power: supply: add Silicon Mitus SM5714 fuel gauge driver
+  dt-bindings: power: supply: add Silicon Mitus SM5714 charger
+  power: supply: add Silicon Mitus SM5714 charger driver
+  power: supply: sm5714-charger: use named BIT() register flags
+
+ .../supply/siliconmitus,sm5714-charger.yaml   |  80 ++++
+ .../power/supply/siliconmitus,sm5714-fg.yaml  |  44 ++
+ MAINTAINERS                                   |   7 +
+ drivers/power/supply/Kconfig                  |  23 +
+ drivers/power/supply/Makefile                 |   2 +
+ drivers/power/supply/sm5714-charger.c         | 413 ++++++++++++++++++
+ drivers/power/supply/sm5714-fg.c              | 192 ++++++++
+ 7 files changed, 761 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/power/supply/siliconmitus,sm5714-charger.yaml
+ create mode 100644 Documentation/devicetree/bindings/power/supply/siliconmitus,sm5714-fg.yaml
+ create mode 100644 drivers/power/supply/sm5714-charger.c
+ create mode 100644 drivers/power/supply/sm5714-fg.c
+
+-- 
+2.55.0
+

@@ -1,0 +1,43 @@
+From 19d28e9813e564f47c4231710aaa454ca8c707df Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:40:54 +0200
+Subject: [PATCH v1 0/9] media: qcom: camss: MIPI CSI-2 C-PHY support
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+David Heidelberg's C-PHY support series (v9) for qcom camss, carried here
+unchanged as a dependency of the SC7180/SM7125 camss enablement. All
+patches retain their original authorship and trailers.
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+David Heidelberg (9):
+  media: qcom: camss: csiphy-3ph: Fix lane mask calculation
+  media: qcom: camss: csiphy: Introduce PHY configuration
+  media: qcom: camss: csiphy-3ph: Use odd bits for configuring C-PHY
+    lanes
+  media: qcom: camss: Prepare CSID for C-PHY support
+  media: qcom: camss: Initialize lanes after lane configuration is
+    available
+  media: qcom: camss: csiphy-3ph: Add Gen2 v1.1 MIPI CSI-2 C-PHY init
+  media: qcom: camss: csiphy-3ph: Update Gen2 v1.1 MIPI CSI-2 C-PHY init
+  media: qcom: camss: Account for C-PHY when calculating link frequency
+  media: qcom: camss: Enable C-PHY where available
+
+ .../platform/qcom/camss/camss-csid-gen2.c     |   1 +
+ .../media/platform/qcom/camss/camss-csid.c    |  11 +-
+ .../media/platform/qcom/camss/camss-csid.h    |   6 +
+ .../qcom/camss/camss-csiphy-3ph-1-0.c         | 229 ++++++++++++++----
+ .../media/platform/qcom/camss/camss-csiphy.c  |   6 +-
+ .../media/platform/qcom/camss/camss-csiphy.h  |   2 +
+ drivers/media/platform/qcom/camss/camss.c     |  33 ++-
+ drivers/media/platform/qcom/camss/camss.h     |   2 +-
+ 8 files changed, 229 insertions(+), 61 deletions(-)
+
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

@@ -1,0 +1,38 @@
+From 911523e95653e602ef40faad0a7747af207cf8c8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:06:58 +0200
+Subject: [PATCH v1 2/3] dt-bindings: ASoC: tas2562: add ti,rx-slot-width
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add an optional property describing the RX (playback) slot length in
+bits, for links whose slots are narrower than the 32-bit reset default.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ Documentation/devicetree/bindings/sound/ti,tas2562.yaml | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/sound/ti,tas2562.yaml b/Documentation/devicetree/bindings/sound/ti,tas2562.yaml
+index 3763ca16b91f..2b384b58af3b 100644
+--- a/Documentation/devicetree/bindings/sound/ti,tas2562.yaml
++++ b/Documentation/devicetree/bindings/sound/ti,tas2562.yaml
+@@ -52,6 +52,14 @@ properties:
+     $ref: /schemas/types.yaml#/definitions/uint32
+     description: TDM TX current sense time slot.
+ 
++  ti,rx-slot-width:
++    $ref: /schemas/types.yaml#/definitions/uint32
++    enum: [16, 24, 32]
++    description:
++      RX (playback) slot length in bits. Defaults to the hardware reset value
++      of 32 bits when absent. Set this to match the frame when the amplifier
++      shares an I2S/TDM link whose slots are narrower than 32 bits.
++
+   '#sound-dai-cells':
+     # The codec has a single DAI, the #sound-dai-cells=<1>; case is left in for backward
+     # compatibility but is deprecated.
+-- 
+2.55.0
+

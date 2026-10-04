@@ -1,0 +1,78 @@
+From f698dd36498ad81d150ceb6c32c13f5110dca9ee Mon Sep 17 00:00:00 2001
+From: Jorijn van der Graaf <jorijnvdgraaf@catcrafts.net>
+Date: Fri, 7 Aug 2026 04:09:58 +0200
+Subject: [PATCH v1 3/5] dt-bindings: net: nfc: samsung,s3fwrn5: add the
+ S3NRN4V
+
+The S3NRN4V is a later part in the Samsung NCI NFC controller line
+this binding documents, found e.g. on the Fairphone 6 (SM7635). Its
+host interface is NCI over I2C like the S3FWRN5, but it is not
+compatible with any of the existing parts, so no fallback compatible
+applies: its bootloader reports a hardware version none of the
+existing parts use, and its RF configuration is loaded through a
+different proprietary command set.
+
+Also document the PVDD supply, the externally switched rail powering
+the controller (boards feed it from a PMIC LDO). It is required for the
+new device; deployed DTs for the existing parts never described a
+supply, so for those it stays optional.
+
+Assisted-by: Claude:claude-opus-4-8
+Assisted-by: Claude:claude-fable-5
+Signed-off-by: Jorijn van der Graaf <jorijnvdgraaf@catcrafts.net>
+---
+ .../bindings/net/nfc/samsung,s3fwrn5.yaml     | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/net/nfc/samsung,s3fwrn5.yaml b/Documentation/devicetree/bindings/net/nfc/samsung,s3fwrn5.yaml
+index 12baee45752c..40a69466802b 100644
+--- a/Documentation/devicetree/bindings/net/nfc/samsung,s3fwrn5.yaml
++++ b/Documentation/devicetree/bindings/net/nfc/samsung,s3fwrn5.yaml
+@@ -14,6 +14,7 @@ properties:
+     enum:
+       - samsung,s3fwrn5-i2c
+       - samsung,s3fwrn82
++      - samsung,s3nrn4v
+ 
+   en-gpios:
+     maxItems: 1
+@@ -29,6 +30,9 @@ properties:
+   clocks:
+     maxItems: 1
+ 
++  pvdd-supply:
++    description: PVDD power supply
++
+   wake-gpios:
+     maxItems: 1
+     description:
+@@ -58,12 +62,25 @@ allOf:
+       properties:
+         compatible:
+           contains:
+-            const: samsung,s3fwrn5-i2c
++            enum:
++              - samsung,s3fwrn5-i2c
++              - samsung,s3nrn4v
+     then:
+       required:
+         - interrupts
+         - reg
+ 
++  # Deployed DTs for the older parts never described a supply, so PVDD is
++  # only required for the new device.
++  - if:
++      properties:
++        compatible:
++          contains:
++            const: samsung,s3nrn4v
++    then:
++      required:
++        - pvdd-supply
++
+ examples:
+   - |
+     #include <dt-bindings/gpio/gpio.h>
+-- 
+2.55.0
+

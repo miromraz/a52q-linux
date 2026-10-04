@@ -1,0 +1,75 @@
+From 86c0c1a6c5ead881fd0adb26962635359ade6635 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:22:38 +0200
+Subject: [PATCH v1 1/3] ASoC: tas2562: support frame-sync polarity inversion
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+tas2562_set_dai_fmt() only accepts SND_SOC_DAIFMT_NB_NF and
+SND_SOC_DAIFMT_IB_NF and returns -EINVAL for any format with an inverted
+frame clock. Handle SND_SOC_DAIFMT_NB_IF and SND_SOC_DAIFMT_IB_IF as
+well by programming the FRAME_START field in TDM_CFG0 (kept at its
+high-to-low default for a normal frame sync, cleared for an inverted
+one), so the amplifier can be driven from an I2S link that inverts the
+frame-sync polarity.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ sound/soc/codecs/tas2562.c | 14 ++++++++++++++
+ sound/soc/codecs/tas2562.h |  2 ++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/sound/soc/codecs/tas2562.c b/sound/soc/codecs/tas2562.c
+index 0b8644ad74f1..2289543afce0 100644
+--- a/sound/soc/codecs/tas2562.c
++++ b/sound/soc/codecs/tas2562.c
+@@ -307,6 +307,7 @@ static int tas2562_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+ 	struct snd_soc_component *component = dai->component;
+ 	struct tas2562_data *tas2562 = snd_soc_component_get_drvdata(component);
+ 	u8 asi_cfg_1 = 0;
++	u8 frame_start = TAS2562_TDM_CFG0_FRAME_START_HIGH_TO_LOW;
+ 	u8 tdm_rx_start_slot = 0;
+ 	int ret;
+ 
+@@ -317,11 +318,24 @@ static int tas2562_set_dai_fmt(struct snd_soc_dai *dai, unsigned int fmt)
+ 	case SND_SOC_DAIFMT_IB_NF:
+ 		asi_cfg_1 |= TAS2562_TDM_CFG1_RX_FALLING;
+ 		break;
++	case SND_SOC_DAIFMT_NB_IF:
++		frame_start = 0;
++		break;
++	case SND_SOC_DAIFMT_IB_IF:
++		asi_cfg_1 |= TAS2562_TDM_CFG1_RX_FALLING;
++		frame_start = 0;
++		break;
+ 	default:
+ 		dev_err(tas2562->dev, "ASI format Inverse is not found\n");
+ 		return -EINVAL;
+ 	}
+ 
++	ret = snd_soc_component_update_bits(component, TAS2562_TDM_CFG0,
++					    TAS2562_TDM_CFG0_FRAME_START_MASK,
++					    frame_start);
++	if (ret < 0)
++		return ret;
++
+ 	ret = snd_soc_component_update_bits(component, TAS2562_TDM_CFG1,
+ 					    TAS2562_TDM_CFG1_RX_EDGE_MASK,
+ 					    asi_cfg_1);
+diff --git a/sound/soc/codecs/tas2562.h b/sound/soc/codecs/tas2562.h
+index 55b2a1f52ca3..b77a9aee36d0 100644
+--- a/sound/soc/codecs/tas2562.h
++++ b/sound/soc/codecs/tas2562.h
+@@ -54,6 +54,8 @@
+ #define TAS2562_TDM_CFG1_RX_EDGE_MASK	BIT(0)
+ #define TAS2562_TDM_CFG1_RX_FALLING	1
+ 
++#define TAS2562_TDM_CFG0_FRAME_START_MASK	BIT(0)
++#define TAS2562_TDM_CFG0_FRAME_START_HIGH_TO_LOW	BIT(0)
+ #define TAS2562_TDM_CFG0_RAMPRATE_MASK		BIT(5)
+ #define TAS2562_TDM_CFG0_RAMPRATE_44_1		BIT(5)
+ #define TAS2562_TDM_CFG0_SAMPRATE_MASK		GENMASK(3, 1)
+-- 
+2.55.0
+

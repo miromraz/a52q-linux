@@ -1,0 +1,46 @@
+From 4d4a8a3002f2a6a32b8c485fa9c566d815ada909 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 04:02:56 +0200
+Subject: [PATCH v1 20/22] arm64: dts: qcom: sm7125-samsung-a52q: add the q6asm
+ frontend DAIs
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The MultiMedia1-3 links of the sound card use q6asm frontend DAIs 0-2;
+without the dai@N children q6asm-dai fails to probe ("No dais found in
+DT") and the card never registers.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index d18933582867..cbb4a7b11fe2 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -213,6 +213,20 @@ vmux_out: endpoint {
+ 	};
+ };
+ 
++&q6asmdai {
++	dai@0 {
++		reg = <0>;
++	};
++
++	dai@1 {
++		reg = <1>;
++	};
++
++	dai@2 {
++		reg = <2>;
++	};
++};
++
+ &rmtfs_mem {
+ 	reg = <0x0 0xf4f00000 0x0 0x202000>;
+ };
+-- 
+2.55.0
+

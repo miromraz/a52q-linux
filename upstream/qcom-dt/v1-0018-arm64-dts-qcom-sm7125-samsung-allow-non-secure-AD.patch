@@ -1,0 +1,39 @@
+From e6bda19bba36ddb4d8bd0b7c9b4c21622280da1b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:24:17 +0200
+Subject: [PATCH v1 18/22] arm64: dts: qcom: sm7125-samsung: allow non-secure
+ ADSP FastRPC
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The ADSP sensor framework is reached through the non-secure FastRPC
+device (/dev/fastrpc-adsp), which is only created when the domain is
+marked non-secure. Without it the sensors daemon cannot attach.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+index 0abb51084754..90bcab5921c0 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+@@ -481,6 +481,13 @@ &qupv3_id_1 {
+ 
+ &remoteproc_adsp {
+ 	memory-region = <&adsp_mem>;
++
++	glink-edge {
++		fastrpc {
++			/* the sensors (SEE) client runs in the unsigned PD */
++			qcom,non-secure-domain;
++		};
++	};
+ };
+ 
+ &sdhc_2 {
+-- 
+2.55.0
+

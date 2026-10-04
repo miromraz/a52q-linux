@@ -1,0 +1,279 @@
+# checkpatch.pl --strict (qcom-dt)
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0001-dt-bindings-arm-qcom-Document-Samsung-Galaxy-A52-.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 8 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0001-dt-bindings-arm-qcom-Document-Samsung-Galaxy-A52-.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0002-arm64-dts-qcom-sm7125-samsung-add-initial-device-.patch
+--------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#49: 
+new file mode 100644
+
+WARNING: DT compatible string "samsung,a52q" appears un-documented -- check ./Documentation/devicetree/bindings/
+#67: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:14:
++	compatible = "samsung,a52q", "qcom,sm7125";
+
+WARNING: DT compatible string "samsung,a72q" appears un-documented -- check ./Documentation/devicetree/bindings/
+#93: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a72q.dts:14:
++	compatible = "samsung,a72q", "qcom,sm7125";
+
+CHECK: Please don't use multiple blank lines
+#426: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi:321:
++
++
+
+total: 0 errors, 3 warnings, 1 checks, 584 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0002-arm64-dts-qcom-sm7125-samsung-add-initial-device-.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0003-arm64-dts-qcom-sm7125-samsung-a52q-add-touch-char.patch
+--------------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "siliconmitus,sm5714-muic" appears un-documented -- check ./Documentation/devicetree/bindings/
+#39: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:27:
++		compatible = "siliconmitus,sm5714-muic";
+
+WARNING: DT compatible string "siliconmitus,sm5714-charger" appears un-documented -- check ./Documentation/devicetree/bindings/
+#51: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:39:
++		compatible = "siliconmitus,sm5714-charger";
+
+WARNING: DT compatible string "siliconmitus,sm5714-fg" appears un-documented -- check ./Documentation/devicetree/bindings/
+#65: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:53:
++		compatible = "siliconmitus,sm5714-fg";
+
+WARNING: DT compatible string "st,stmfts_fts5cu56a" appears un-documented -- check ./Documentation/devicetree/bindings/
+#75: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:63:
++		compatible = "st,stmfts_fts5cu56a";
+
+WARNING: DT compatible string "siliconmitus,sm5714-cc" appears un-documented -- check ./Documentation/devicetree/bindings/
+#93: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:81:
++		compatible = "siliconmitus,sm5714-cc";
+
+total: 0 errors, 5 warnings, 0 checks, 133 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0003-arm64-dts-qcom-sm7125-samsung-a52q-add-touch-char.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0004-arm64-dts-qcom-sm7125-samsung-enable-coprocessors.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 168 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0004-arm64-dts-qcom-sm7125-samsung-enable-coprocessors.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0005-arm64-dts-qcom-sm7125-samsung-a52q-enable-the-DSI.patch
+--------------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "samsung,s6e3fc3-ams646yd04" appears un-documented -- check ./Documentation/devicetree/bindings/
+#30: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:28:
++	compatible = "samsung,s6e3fc3-ams646yd04", "samsung,s6e3fc3";
+
+WARNING: DT compatible string "samsung,s6e3fc3" appears un-documented -- check ./Documentation/devicetree/bindings/
+#30: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:28:
++	compatible = "samsung,s6e3fc3-ams646yd04", "samsung,s6e3fc3";
+
+total: 0 errors, 2 warnings, 0 checks, 103 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0005-arm64-dts-qcom-sm7125-samsung-a52q-enable-the-DSI.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0006-arm64-dts-qcom-sm7125-samsung-a52q-add-ADSP-sleep.patch
+--------------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "qcom,smp2p-sleepstate" appears un-documented -- check ./Documentation/devicetree/bindings/
+#35: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:24:
++		compatible = "qcom,smp2p-sleepstate";
+
+total: 0 errors, 1 warnings, 0 checks, 37 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0006-arm64-dts-qcom-sm7125-samsung-a52q-add-ADSP-sleep.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0007-arm64-dts-qcom-sm7125-add-A618-GPU-OPPs-for-speed.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 42 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0007-arm64-dts-qcom-sm7125-add-A618-GPU-OPPs-for-speed.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0008-arm64-dts-qcom-sc7180-add-GPI-DMA-engines-and-wir.patch
+--------------------------------------------------------------------------------------------------------
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 0 warnings, 0 checks, 239 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0008-arm64-dts-qcom-sc7180-add-GPI-DMA-engines-and-wir.patch has style problems, please review.
+-------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0009-arm64-dts-qcom-sm7125-samsung-a52q-add-NFC.patch
+-------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "samsung,s3nrn4v" appears un-documented -- check ./Documentation/devicetree/bindings/
+#43: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:62:
++		compatible = "samsung,s3nrn4v";
+
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 1 warnings, 0 checks, 61 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0009-arm64-dts-qcom-sm7125-samsung-a52q-add-NFC.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0010-arm64-dts-qcom-sm7125-samsung-allow-keys-to-wake-.patch
+--------------------------------------------------------------------------------------------------------
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 0 warnings, 0 checks, 14 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0010-arm64-dts-qcom-sm7125-samsung-allow-keys-to-wake-.patch has style problems, please review.
+----------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0011-arm64-dts-qcom-sc7180-Add-CCI-and-CAMSS-nodes.patch
+----------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "qcom,sc7180-cci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#87: FILE: arch/arm64/boot/dts/qcom/sc7180.dtsi:3361:
++			compatible = "qcom,sc7180-cci", "qcom,msm8996-cci";
+
+WARNING: DT compatible string "qcom,sc7180-cci" appears un-documented -- check ./Documentation/devicetree/bindings/
+#129: FILE: arch/arm64/boot/dts/qcom/sc7180.dtsi:3403:
++			compatible = "qcom,sc7180-cci", "qcom,msm8996-cci";
+
+WARNING: DT compatible string "qcom,sc7180-camss" appears un-documented -- check ./Documentation/devicetree/bindings/
+#171: FILE: arch/arm64/boot/dts/qcom/sc7180.dtsi:3445:
++			compatible = "qcom,sc7180-camss";
+
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 3 warnings, 0 checks, 291 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0011-arm64-dts-qcom-sc7180-Add-CCI-and-CAMSS-nodes.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0012-arm64-dts-qcom-sc7180-add-LPASS-audio-macros-Soun.patch
+--------------------------------------------------------------------------------------------------------
+WARNING: line length of 104 exceeds 100 columns
+#38: FILE: arch/arm64/boot/dts/qcom/sc7180.dtsi:4425:
++				 <&q6afecc LPASS_CLK_ID_TX_CORE_NPL_MCLK LPASS_CLK_ATTRIBUTE_COUPLE_NO>,
+
+WARNING: line length of 104 exceeds 100 columns
+#84: FILE: arch/arm64/boot/dts/qcom/sc7180.dtsi:4471:
++				 <&q6afecc LPASS_CLK_ID_TX_CORE_NPL_MCLK LPASS_CLK_ATTRIBUTE_COUPLE_NO>,
+
+WARNING: DT compatible string "qcom,sc7180-lpass-lpi-pinctrl" appears un-documented -- check ./Documentation/devicetree/bindings/
+#139: FILE: arch/arm64/boot/dts/qcom/sc7180.dtsi:4526:
++			compatible = "qcom,sc7180-lpass-lpi-pinctrl",
+
+total: 0 errors, 3 warnings, 0 checks, 192 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0012-arm64-dts-qcom-sc7180-add-LPASS-audio-macros-Soun.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0013-arm64-dts-qcom-sm7125-samsung-a52q-add-speakers-W.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 227 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0013-arm64-dts-qcom-sm7125-samsung-a52q-add-speakers-W.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0014-arm64-dts-qcom-sm7125-samsung-a52q-add-S2MPB03-ca.patch
+--------------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "samsung,s2mpb03" appears un-documented -- check ./Documentation/devicetree/bindings/
+#40: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:114:
++			compatible = "samsung,s2mpb03";
+
+total: 0 errors, 1 warnings, 0 checks, 72 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0014-arm64-dts-qcom-sm7125-samsung-a52q-add-S2MPB03-ca.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0015-arm64-dts-qcom-sm7125-samsung-a52q-add-camera-sen.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 226 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0015-arm64-dts-qcom-sm7125-samsung-a52q-add-camera-sen.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0016-arm64-dts-qcom-sm7125-samsung-a52q-add-camera-VCM.patch
+--------------------------------------------------------------------------------------------------------
+grep: warning: stray \ before -
+total: 0 errors, 0 warnings, 0 checks, 40 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0016-arm64-dts-qcom-sm7125-samsung-a52q-add-camera-VCM.patch has no obvious style problems and is ready for submission.
+------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0017-arm64-dts-qcom-sm7125-samsung-add-aliases.patch
+------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 12 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0017-arm64-dts-qcom-sm7125-samsung-add-aliases.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0018-arm64-dts-qcom-sm7125-samsung-allow-non-secure-AD.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 13 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0018-arm64-dts-qcom-sm7125-samsung-allow-non-secure-AD.patch has no obvious style problems and is ready for submission.
+---------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0019-arm64-dts-qcom-sm7125-samsung-enable-GPI-DMA.patch
+---------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 14 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0019-arm64-dts-qcom-sm7125-samsung-enable-GPI-DMA.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0020-arm64-dts-qcom-sm7125-samsung-a52q-add-the-q6asm-.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 20 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0020-arm64-dts-qcom-sm7125-samsung-a52q-add-the-q6asm-.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0021-arm64-dts-qcom-sm7125-samsung-a52q-describe-the-q.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 21 lines checked
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0021-arm64-dts-qcom-sm7125-samsung-a52q-describe-the-q.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0022-arm64-dts-qcom-sm7125-samsung-a52q-add-GC5035-dep.patch
+--------------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "galaxycore,gc5035" appears un-documented -- check ./Documentation/devicetree/bindings/
+#77: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:711:
++		compatible = "galaxycore,gc5035";
+
+WARNING: DT compatible string "galaxycore,gc5035" appears un-documented -- check ./Documentation/devicetree/bindings/
+#108: FILE: arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts:742:
++		compatible = "galaxycore,gc5035";
+
+total: 0 errors, 2 warnings, 0 checks, 145 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/qcom-dt/v1-0022-arm64-dts-qcom-sm7125-samsung-a52q-add-GC5035-dep.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

@@ -1,0 +1,145 @@
+From e09e469e0f4092b33af1e5da15ef7f71a2656ddc Mon Sep 17 00:00:00 2001
+From: Miroslav Mraz <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 04:32:15 +0200
+Subject: [PATCH v1 1/2] media: qcom: camss: Don't call s_stream twice through
+ a forwarding subdev
+
+video_start_streaming() and video_stop_streaming() walk the pipeline
+from the video node towards the sensor and call .s_stream() on every
+subdev they reach, including the sensor itself. This assumes that none
+of the subdevs in the path forwards .s_stream() on its own.
+
+That assumption breaks when an external subdev that does forward the
+call sits in the pipeline. For example with
+
+  [sensor] -> [video-mux] -> [csiphy] -> [csid] -> [vfe] -> [video]
+
+video_mux_s_stream() forwards .s_stream() to its active upstream
+subdev, so the sensor is started by the mux and then started again by
+the CAMSS walk, which triggers the
+
+  WARNING: drivers/media/v4l2-core/v4l2-subdev.c:484 at call_s_stream
+
+"s_stream must never be called to start/stop an already started/stopped
+subdev" check once on start and once on stop. Pipelines where the
+sensor is connected directly to a CSIPHY don't forward and so don't
+warn.
+
+CAMSS only needs to drive its own subdevs; the first external subdev it
+reaches (sensor, bridge or mux) owns everything upstream of itself.
+Hand off to that first external subdev and stop the walk there. Add
+camss_is_own_subdev() which tests a subdev against CAMSS' own CSIPHY,
+TPG, CSID, ISPIF and VFE-line subdevs, enumerated exactly as in
+camss_register_entities(), so the test is independent of whether CAMSS
+and the external subdev are built as modules or built-in. Plain sensor
+pipelines are unaffected: the sensor is still the last subdev
+started/stopped.
+
+Fixes: 0ac2586c410f ("media: camss: Add files which handle the video device nodes")
+Signed-off-by: Miroslav Mraz <miroslav.mraz@techmania.cz>
+---
+ .../media/platform/qcom/camss/camss-video.c   | 14 +++++++
+ drivers/media/platform/qcom/camss/camss.c     | 42 +++++++++++++++++++
+ drivers/media/platform/qcom/camss/camss.h     |  1 +
+ 3 files changed, 57 insertions(+)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-video.c b/drivers/media/platform/qcom/camss/camss-video.c
+index 0852eb6f1315..7737b3ff48ad 100644
+--- a/drivers/media/platform/qcom/camss/camss-video.c
++++ b/drivers/media/platform/qcom/camss/camss-video.c
+@@ -284,6 +284,13 @@ static int video_start_streaming(struct vb2_queue *q, unsigned int count)
+ 		ret = v4l2_subdev_call(subdev, video, s_stream, 1);
+ 		if (ret < 0 && ret != -ENOIOCTLCMD)
+ 			goto error;
++
++		/*
++		 * Stop at the first external subdev: it starts its own
++		 * upstream, so walking further would start it twice.
++		 */
++		if (!camss_is_own_subdev(video->camss, subdev))
++			break;
+ 	}
+ 
+ 	return 0;
+@@ -325,6 +332,13 @@ static void video_stop_streaming(struct vb2_queue *q)
+ 			dev_err(video->camss->dev, "Video pipeline stop failed: %d\n", ret);
+ 			return;
+ 		}
++
++		/*
++		 * Stop at the first external subdev: it stops its own
++		 * upstream, so walking further would stop it twice.
++		 */
++		if (!camss_is_own_subdev(video->camss, subdev))
++			break;
+ 	}
+ 
+ 	video_device_pipeline_stop(vdev);
+diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/qcom/camss/camss.c
+index 2123f6388e3d..96ec66fa755d 100644
+--- a/drivers/media/platform/qcom/camss/camss.c
++++ b/drivers/media/platform/qcom/camss/camss.c
+@@ -5044,6 +5044,48 @@ void camss_buf_done(struct camss *camss, int hw_id, int port_id)
+ 	}
+ }
+ 
++/*
++ * camss_is_own_subdev - Tell whether a subdev belongs to CAMSS
++ * @camss: CAMSS device
++ * @sd: The subdev to test
++ *
++ * CAMSS registers a fixed set of subdevs for its internal blocks (CSIPHY,
++ * TPG, CSID, ISPIF and VFE lines). Return true if @sd is one of them. This
++ * lets a pipeline walk tell CAMSS' own subdevs apart from external ones (a
++ * sensor, a bridge or a video mux) regardless of how the drivers are built
++ * (module vs built-in). The subdevs are enumerated in the same way as in
++ * camss_register_entities().
++ */
++bool camss_is_own_subdev(struct camss *camss, struct v4l2_subdev *sd)
++{
++	unsigned int i, j;
++
++	for (i = 0; i < camss->res->csiphy_num; i++)
++		if (sd == &camss->csiphy[i].subdev)
++			return true;
++
++	if (camss->tpg)
++		for (i = 0; i < camss->res->tpg_num; i++)
++			if (sd == &camss->tpg[i].subdev)
++				return true;
++
++	for (i = 0; i < camss->res->csid_num; i++)
++		if (sd == &camss->csid[i].subdev)
++			return true;
++
++	if (camss->ispif)
++		for (i = 0; i < camss->ispif->line_num; i++)
++			if (sd == &camss->ispif->line[i].subdev)
++				return true;
++
++	for (i = 0; i < camss->res->vfe_num; i++)
++		for (j = 0; j < camss->vfe[i].res->line_num; j++)
++			if (sd == &camss->vfe[i].line[j].subdev)
++				return true;
++
++	return false;
++}
++
+ /*
+  * camss_register_entities - Register subdev nodes and create links
+  * @camss: CAMSS device
+diff --git a/drivers/media/platform/qcom/camss/camss.h b/drivers/media/platform/qcom/camss/camss.h
+index 93d691c8ac63..c284d5527f87 100644
+--- a/drivers/media/platform/qcom/camss/camss.h
++++ b/drivers/media/platform/qcom/camss/camss.h
+@@ -175,6 +175,7 @@ int camss_pm_domain_on(struct camss *camss, int id);
+ void camss_pm_domain_off(struct camss *camss, int id);
+ int camss_vfe_get(struct camss *camss, int id);
+ void camss_vfe_put(struct camss *camss, int id);
++bool camss_is_own_subdev(struct camss *camss, struct v4l2_subdev *sd);
+ void camss_delete(struct camss *camss);
+ void camss_buf_done(struct camss *camss, int hw_id, int port_id);
+ void camss_reg_update(struct camss *camss, int hw_id,
+-- 
+2.55.0
+

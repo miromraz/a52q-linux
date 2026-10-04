@@ -1,0 +1,551 @@
+From 3eaf0cfe057231a9ba025878d3b179b0e19c7da5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:59:55 +0200
+Subject: [PATCH v2 2/2] Input: add STMicroelectronics FTS5CU56A touchscreen
+ driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add support for the ST FTS5CU56A capacitive multi-touch controller used
+on the Samsung Galaxy A52 (a52q) and related devices.
+
+The FTS5CU56A runs STMicroelectronics' sec_ts-family firmware, whose
+I2C wire protocol (16-byte event FIFO read via 0x60/0x61, 0x22/0x24 ID
+and firmware-version reads, 0x13 force calibration) is incompatible
+with the ST reference firmware handled by the existing stmfts driver,
+so it is implemented separately.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ MAINTAINERS                                  |   7 +
+ drivers/input/touchscreen/Kconfig            |  11 +
+ drivers/input/touchscreen/Makefile           |   1 +
+ drivers/input/touchscreen/stmfts_fts5cu56a.c | 463 +++++++++++++++++++
+ 4 files changed, 482 insertions(+)
+ create mode 100644 drivers/input/touchscreen/stmfts_fts5cu56a.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 72294ddfa5b7..994a67f573e4 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -25935,6 +25935,13 @@ L:	linux-spi@vger.kernel.org
+ S:	Maintained
+ F:	drivers/spi/spi-stm32.c
+ 
++ST STMFTS FTS5CU56A TOUCHSCREEN DRIVER
++M:	Miroslav Mráz <miroslav.mraz@techmania.cz>
++L:	linux-input@vger.kernel.org
++S:	Maintained
++F:	Documentation/devicetree/bindings/input/touchscreen/st,fts5cu56a.yaml
++F:	drivers/input/touchscreen/stmfts_fts5cu56a.c
++
+ ST STPDDC60 DRIVER
+ M:	Daniel Nilsson <daniel.nilsson@flex.com>
+ L:	linux-hwmon@vger.kernel.org
+diff --git a/drivers/input/touchscreen/Kconfig b/drivers/input/touchscreen/Kconfig
+index 9b9ae8ac3f7f..2b5b781c7a62 100644
+--- a/drivers/input/touchscreen/Kconfig
++++ b/drivers/input/touchscreen/Kconfig
+@@ -1251,6 +1251,17 @@ config TOUCHSCREEN_STMFTS
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called stmfts.
+ 
++config TOUCHSCREEN_STMFTS_FTS5CU56A
++	tristate "STMicroelectronics FTS5CU56A touchscreen"
++	depends on I2C
++	help
++	  Say Y here if you want support for the STMicroelectronics
++	  FTS5CU56A touchscreen controller, found on the Samsung Galaxy
++	  A52 (a52q) and similar devices.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called stmfts_fts5cu56a.
++
+ config TOUCHSCREEN_STMPE
+ 	tristate "STMicroelectronics STMPE touchscreens"
+ 	depends on MFD_STMPE
+diff --git a/drivers/input/touchscreen/Makefile b/drivers/input/touchscreen/Makefile
+index bfd9de83389d..e3e9480ee6be 100644
+--- a/drivers/input/touchscreen/Makefile
++++ b/drivers/input/touchscreen/Makefile
+@@ -82,6 +82,7 @@ obj-$(CONFIG_TOUCHSCREEN_SILEAD)	+= silead.o
+ obj-$(CONFIG_TOUCHSCREEN_SIS_I2C)	+= sis_i2c.o
+ obj-$(CONFIG_TOUCHSCREEN_ST1232)	+= st1232.o
+ obj-$(CONFIG_TOUCHSCREEN_STMFTS)	+= stmfts.o
++obj-$(CONFIG_TOUCHSCREEN_STMFTS_FTS5CU56A)	+= stmfts_fts5cu56a.o
+ obj-$(CONFIG_TOUCHSCREEN_STMPE)		+= stmpe-ts.o
+ obj-$(CONFIG_TOUCHSCREEN_SUN4I)		+= sun4i-ts.o
+ obj-$(CONFIG_TOUCHSCREEN_SUR40)		+= sur40.o
+diff --git a/drivers/input/touchscreen/stmfts_fts5cu56a.c b/drivers/input/touchscreen/stmfts_fts5cu56a.c
+new file mode 100644
+index 000000000000..4b18b9d74596
+--- /dev/null
++++ b/drivers/input/touchscreen/stmfts_fts5cu56a.c
+@@ -0,0 +1,463 @@
++// SPDX-License-Identifier: GPL-2.0
++// STMicroelectronics FTS5CU56A touchscreen device driver
++//
++// Copyright (c) 2017 Samsung Electronics Co., Ltd.
++// Copyright (c) 2017 Andi Shyti <andi@etezian.org>
++
++#include <linux/delay.h>
++#include <linux/i2c.h>
++#include <linux/input/mt.h>
++#include <linux/input/touchscreen.h>
++#include <linux/interrupt.h>
++#include <linux/irq.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/regulator/consumer.h>
++
++#define STMFTS_MAX_FINGERS		10
++#define STMFTS_DEV_NAME			"stmfts"
++
++#define FTS_READ_DEVICE_ID		0x22
++#define FTS_READ_FW_VERSION		0x24
++#define FTS_CMD_FORCE_CALIBRATION	0x13
++
++#define FTS_READ_ONE_EVENT		0x60
++#define FTS_READ_ALL_EVENT		0x61
++#define FTS_CMD_CLEAR_ALL_EVENT		0x62
++
++#define FTS_EVENT_SIZE			16
++#define FTS_FIFO_MAX			31
++
++/* event id (bits 1:0 of the first event byte) */
++#define FTS_COORDINATE_EVENT		0
++
++/* coordinate event touch action (bits 7:6 of the first event byte) */
++#define FTS_COORDINATE_ACTION_NONE	0
++#define FTS_COORDINATE_ACTION_PRESS	1
++#define FTS_COORDINATE_ACTION_MOVE	2
++#define FTS_COORDINATE_ACTION_RELEASE	3
++
++/* touch type classification */
++#define FTS_EVENT_TOUCHTYPE_NORMAL	0
++#define FTS_EVENT_TOUCHTYPE_GLOVE	3
++#define FTS_EVENT_TOUCHTYPE_PALM	5
++#define FTS_EVENT_TOUCHTYPE_WET		6
++
++enum stmfts_regulators {
++	STMFTS_REGULATOR_VDD,
++	STMFTS_REGULATOR_AVDD,
++};
++
++struct stmfts_data {
++	struct i2c_client *client;
++	struct input_dev *input;
++	struct mutex mutex;	/* serializes access to the device */
++
++	struct regulator_bulk_data regulators[2];
++
++	u16 chip_id;
++	u8 chip_ver;
++	u16 fw_ver;
++	u8 config_id;
++	u8 config_ver;
++
++	u8 prev_action[STMFTS_MAX_FINGERS];
++	int touch_count;
++};
++
++static void stmfts_report_events(struct stmfts_data *sdata)
++{
++	u8 data[FTS_FIFO_MAX * FTS_EVENT_SIZE] = {0};
++	int left_event_count;
++	int event_num = 0;
++
++	i2c_smbus_read_i2c_block_data(sdata->client, FTS_READ_ONE_EVENT,
++				      FTS_EVENT_SIZE, data);
++	left_event_count = data[7] & 0x1f;
++
++	if (left_event_count >= FTS_FIFO_MAX)
++		left_event_count = FTS_FIFO_MAX - 1;
++
++	if (left_event_count > 0)
++		i2c_smbus_read_i2c_block_data(sdata->client, FTS_READ_ALL_EVENT,
++					      FTS_EVENT_SIZE * left_event_count,
++					      &data[FTS_EVENT_SIZE]);
++
++	do {
++		u8 *event = &data[event_num * FTS_EVENT_SIZE];
++		u8 touch_id, action, prev_action, ttype;
++		u16 x, y;
++
++		if ((event[0] & 0x3) != FTS_COORDINATE_EVENT)
++			goto next;
++
++		touch_id = (event[0] >> 2) & 0x0f;
++		if (touch_id >= STMFTS_MAX_FINGERS)
++			goto next;
++
++		action = (event[0] >> 6) & 0x3;
++		prev_action = sdata->prev_action[touch_id];
++		sdata->prev_action[touch_id] = action;
++
++		x = (event[1] << 4) | (event[3] >> 4);
++		y = (event[2] << 4) | (event[3] & 0x0f);
++		ttype = ((event[6] >> 6) & 0x3) << 2 | ((event[7] >> 6) & 0x3);
++
++		if (ttype != FTS_EVENT_TOUCHTYPE_NORMAL &&
++		    ttype != FTS_EVENT_TOUCHTYPE_PALM &&
++		    ttype != FTS_EVENT_TOUCHTYPE_WET &&
++		    ttype != FTS_EVENT_TOUCHTYPE_GLOVE)
++			goto next;
++
++		switch (action) {
++		case FTS_COORDINATE_ACTION_RELEASE:
++			input_mt_slot(sdata->input, touch_id);
++			input_mt_report_slot_state(sdata->input,
++						   MT_TOOL_FINGER, false);
++
++			if (sdata->touch_count > 0)
++				sdata->touch_count--;
++			if (sdata->touch_count == 0) {
++				input_report_key(sdata->input, BTN_TOUCH, 0);
++				input_report_key(sdata->input,
++						 BTN_TOOL_FINGER, 0);
++			}
++
++			sdata->prev_action[touch_id] =
++				FTS_COORDINATE_ACTION_NONE;
++			break;
++
++		case FTS_COORDINATE_ACTION_PRESS:
++			sdata->touch_count++;
++			input_mt_slot(sdata->input, touch_id);
++			input_mt_report_slot_state(sdata->input,
++						   MT_TOOL_FINGER, true);
++			input_report_key(sdata->input, BTN_TOUCH, 1);
++			input_report_key(sdata->input, BTN_TOOL_FINGER, 1);
++			input_report_abs(sdata->input, ABS_MT_POSITION_X, x);
++			input_report_abs(sdata->input, ABS_MT_POSITION_Y, y);
++			input_report_abs(sdata->input, ABS_MT_TOUCH_MAJOR,
++					 event[4]);
++			input_report_abs(sdata->input, ABS_MT_TOUCH_MINOR,
++					 event[5]);
++			break;
++
++		case FTS_COORDINATE_ACTION_MOVE:
++			if (sdata->touch_count == 0 ||
++			    prev_action == FTS_COORDINATE_ACTION_NONE)
++				goto next;
++
++			input_mt_slot(sdata->input, touch_id);
++			input_mt_report_slot_state(sdata->input,
++						   MT_TOOL_FINGER, true);
++			input_report_key(sdata->input, BTN_TOUCH, 1);
++			input_report_key(sdata->input, BTN_TOOL_FINGER, 1);
++			input_report_abs(sdata->input, ABS_MT_POSITION_X, x);
++			input_report_abs(sdata->input, ABS_MT_POSITION_Y, y);
++			input_report_abs(sdata->input, ABS_MT_TOUCH_MAJOR,
++					 event[4]);
++			input_report_abs(sdata->input, ABS_MT_TOUCH_MINOR,
++					 event[5]);
++			break;
++
++		default:
++			break;
++		}
++
++next:
++		event_num++;
++		left_event_count--;
++	} while (left_event_count >= 0);
++
++	input_sync(sdata->input);
++}
++
++static irqreturn_t stmfts_irq_handler(int irq, void *dev)
++{
++	struct stmfts_data *sdata = dev;
++
++	guard(mutex)(&sdata->mutex);
++
++	stmfts_report_events(sdata);
++
++	return IRQ_HANDLED;
++}
++
++static ssize_t chip_id_show(struct device *dev,
++			    struct device_attribute *attr, char *buf)
++{
++	struct stmfts_data *sdata = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%#x\n", sdata->chip_id);
++}
++
++static ssize_t chip_version_show(struct device *dev,
++				 struct device_attribute *attr, char *buf)
++{
++	struct stmfts_data *sdata = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%u\n", sdata->chip_ver);
++}
++
++static ssize_t fw_ver_show(struct device *dev,
++			   struct device_attribute *attr, char *buf)
++{
++	struct stmfts_data *sdata = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%u\n", sdata->fw_ver);
++}
++
++static ssize_t config_id_show(struct device *dev,
++			      struct device_attribute *attr, char *buf)
++{
++	struct stmfts_data *sdata = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%#x\n", sdata->config_id);
++}
++
++static ssize_t config_version_show(struct device *dev,
++				   struct device_attribute *attr, char *buf)
++{
++	struct stmfts_data *sdata = dev_get_drvdata(dev);
++
++	return sysfs_emit(buf, "%u\n", sdata->config_ver);
++}
++
++static DEVICE_ATTR_RO(chip_id);
++static DEVICE_ATTR_RO(chip_version);
++static DEVICE_ATTR_RO(fw_ver);
++static DEVICE_ATTR_RO(config_id);
++static DEVICE_ATTR_RO(config_version);
++
++static struct attribute *stmfts_sysfs_attrs[] = {
++	&dev_attr_chip_id.attr,
++	&dev_attr_chip_version.attr,
++	&dev_attr_fw_ver.attr,
++	&dev_attr_config_id.attr,
++	&dev_attr_config_version.attr,
++	NULL
++};
++ATTRIBUTE_GROUPS(stmfts_sysfs);
++
++static int stmfts_power_on(struct stmfts_data *sdata)
++{
++	int err;
++	u8 reg[8];
++	u8 reset_cmds[6] = { 0xfa, 0x20, 0x00, 0x00, 0x24, 0x81 };
++	/* FTS_TOUCHTYPE_BIT_TOUCH | FTS_TOUCHTYPE_BIT_PALM | FTS_TOUCHTYPE_BIT_WET */
++	u8 touch_cmds[3] = { 0x39, 0x61, 0x00 };
++	u8 cal_cmds[1] = { FTS_CMD_FORCE_CALIBRATION };
++	u8 event_clr_cmds[1] = { FTS_CMD_CLEAR_ALL_EVENT };
++	u8 en_scan_cmds[3] = { 0xa0, 0x00, 0x01 };
++
++	err = regulator_bulk_enable(ARRAY_SIZE(sdata->regulators),
++				    sdata->regulators);
++	if (err)
++		return err;
++
++	/*
++	 * The datasheet does not specify the power on time, but considering
++	 * that the reset time is < 10ms, sleep 500ms to be sure the
++	 * controller has finished its boot sequence.
++	 */
++	msleep(500);
++
++	err = i2c_smbus_read_i2c_block_data(sdata->client, FTS_READ_FW_VERSION,
++					    sizeof(reg), reg);
++	if (err < 0)
++		return err;
++	if (err != sizeof(reg))
++		return -EIO;
++
++	sdata->fw_ver = (reg[0] << 8) + reg[1];
++	sdata->config_id = 0;
++	sdata->config_ver = (reg[2] << 8) + reg[3];
++
++	err = i2c_smbus_read_i2c_block_data(sdata->client, FTS_READ_DEVICE_ID,
++					    sizeof(reg), reg);
++	if (err < 0)
++		return err;
++	if (err != sizeof(reg))
++		return -EIO;
++
++	sdata->chip_id = (reg[2] << 8) + reg[3];
++	sdata->chip_ver = reg[4];
++
++	err = i2c_master_send(sdata->client, reset_cmds, sizeof(reset_cmds));
++	if (err < 0)
++		return err;
++
++	msleep(20);
++
++	enable_irq(sdata->client->irq);
++
++	err = i2c_master_send(sdata->client, touch_cmds, sizeof(touch_cmds));
++	if (err < 0)
++		return err;
++
++	err = i2c_master_send(sdata->client, cal_cmds, sizeof(cal_cmds));
++	if (err < 0)
++		return err;
++
++	err = i2c_master_send(sdata->client, event_clr_cmds,
++			      sizeof(event_clr_cmds));
++	if (err < 0)
++		return err;
++
++	err = i2c_master_send(sdata->client, en_scan_cmds,
++			      sizeof(en_scan_cmds));
++	if (err < 0)
++		return err;
++
++	return 0;
++}
++
++static void stmfts_power_off(void *data)
++{
++	struct stmfts_data *sdata = data;
++	int err;
++	u8 dis_scan_cmds[3] = { 0xa0, 0x00, 0x00 };
++
++	err = i2c_master_send(sdata->client, dis_scan_cmds,
++			      sizeof(dis_scan_cmds));
++	if (err < 0)
++		dev_warn(&sdata->client->dev,
++			 "failed to disable touchscreen: %d\n", err);
++
++	disable_irq(sdata->client->irq);
++	regulator_bulk_disable(ARRAY_SIZE(sdata->regulators),
++			       sdata->regulators);
++}
++
++static int stmfts_probe(struct i2c_client *client)
++{
++	int err;
++	struct stmfts_data *sdata;
++
++	if (!i2c_check_functionality(client->adapter, I2C_FUNC_I2C |
++				     I2C_FUNC_SMBUS_BYTE_DATA |
++				     I2C_FUNC_SMBUS_I2C_BLOCK))
++		return -ENODEV;
++
++	sdata = devm_kzalloc(&client->dev, sizeof(*sdata), GFP_KERNEL);
++	if (!sdata)
++		return -ENOMEM;
++
++	i2c_set_clientdata(client, sdata);
++
++	sdata->client = client;
++	mutex_init(&sdata->mutex);
++
++	sdata->regulators[STMFTS_REGULATOR_VDD].supply = "vdd";
++	sdata->regulators[STMFTS_REGULATOR_AVDD].supply = "avdd";
++	err = devm_regulator_bulk_get(&client->dev,
++				      ARRAY_SIZE(sdata->regulators),
++				      sdata->regulators);
++	if (err)
++		return err;
++
++	sdata->input = devm_input_allocate_device(&client->dev);
++	if (!sdata->input)
++		return -ENOMEM;
++
++	sdata->input->name = STMFTS_DEV_NAME;
++	sdata->input->id.bustype = BUS_I2C;
++
++	input_set_capability(sdata->input, EV_ABS, ABS_MT_POSITION_X);
++	input_set_capability(sdata->input, EV_ABS, ABS_MT_POSITION_Y);
++
++	input_set_abs_params(sdata->input, ABS_MT_POSITION_X, 0, 4095, 0, 0);
++	input_set_abs_params(sdata->input, ABS_MT_POSITION_Y, 0, 4095, 0, 0);
++	input_set_abs_params(sdata->input, ABS_MT_TOUCH_MAJOR, 0, 255, 0, 0);
++	input_set_abs_params(sdata->input, ABS_MT_TOUCH_MINOR, 0, 255, 0, 0);
++
++	err = input_mt_init_slots(sdata->input, STMFTS_MAX_FINGERS,
++				  INPUT_MT_DIRECT);
++	if (err)
++		return err;
++
++	input_set_drvdata(sdata->input, sdata);
++
++	/*
++	 * stmfts_power_on expects interrupt to be disabled, but
++	 * at this point the device is still off and I do not trust
++	 * the status of the irq line that can generate some spurious
++	 * interrupts. To be on the safe side it's better to not enable
++	 * the interrupts during their request.
++	 */
++	err = devm_request_threaded_irq(&client->dev, client->irq,
++					NULL, stmfts_irq_handler,
++					IRQF_ONESHOT | IRQF_TRIGGER_LOW |
++					IRQF_NO_AUTOEN,
++					"stmfts_irq", sdata);
++	if (err)
++		return err;
++
++	err = stmfts_power_on(sdata);
++	if (err)
++		return err;
++
++	err = devm_add_action_or_reset(&client->dev, stmfts_power_off, sdata);
++	if (err)
++		return err;
++
++	err = input_register_device(sdata->input);
++	if (err)
++		return err;
++
++	device_enable_async_suspend(&client->dev);
++
++	return 0;
++}
++
++static int stmfts_suspend(struct device *dev)
++{
++	struct stmfts_data *sdata = dev_get_drvdata(dev);
++
++	if (input_device_enabled(sdata->input))
++		stmfts_power_off(sdata);
++
++	return 0;
++}
++
++static int stmfts_resume(struct device *dev)
++{
++	struct stmfts_data *sdata = dev_get_drvdata(dev);
++
++	if (input_device_enabled(sdata->input))
++		return stmfts_power_on(sdata);
++
++	return 0;
++}
++
++static DEFINE_SIMPLE_DEV_PM_OPS(stmfts_pm_ops, stmfts_suspend, stmfts_resume);
++
++static const struct of_device_id stmfts_of_match[] = {
++	{ .compatible = "st,fts5cu56a", },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, stmfts_of_match);
++
++static const struct i2c_device_id stmfts_id[] = {
++	{ "fts5cu56a" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, stmfts_id);
++
++static struct i2c_driver stmfts_driver = {
++	.driver = {
++		.name = STMFTS_DEV_NAME,
++		.of_match_table = stmfts_of_match,
++		.pm = pm_sleep_ptr(&stmfts_pm_ops),
++		.dev_groups = stmfts_sysfs_groups,
++		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++	},
++	.probe = stmfts_probe,
++	.id_table = stmfts_id,
++};
++
++module_i2c_driver(stmfts_driver);
++
++MODULE_AUTHOR("Andi Shyti <andi.shyti@samsung.com>");
++MODULE_DESCRIPTION("STMicroelectronics FTS5CU56A Touch Screen");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

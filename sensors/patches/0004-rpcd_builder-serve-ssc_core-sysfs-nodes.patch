@@ -1,0 +1,71 @@
+--- a/hexagonrpcd/rpcd_builder.c
++++ b/hexagonrpcd/rpcd_builder.c
+@@ -34,6 +34,15 @@
+ #define SNS_REG_TEMP_JSON	"/sensors/registry/temp.json"
+ #define SNS_REG_CONFIG		"/sensors/sns_reg.conf"
+ #define SYSFS_SOCINFO		"/socinfo/"
++/*
++ * a52q (SM7125): Samsung's SEE build polls these downstream ssc_core sysfs
++ * nodes (from their out-of-tree ssc_core driver) before/while starting the
++ * sensor PD; they don't exist on mainline. Serve them from small shipped
++ * files so the opens succeed instead of erroring every ~20ms. Content is a
++ * tuning knob editable on-device without rebuilding (see README).
++ */
++#define SYSFS_SSC_MODE		"/sensors/ssc_core/ssc_mode"
++#define SYSFS_SSC_HW_REV	"/sensors/ssc_core/ssc_hw_rev"
+ 
+ static struct hexagonfs_dirent *hfs_mkdir(const char *name, size_t n_ents, ...)
+ {
+@@ -115,6 +124,7 @@
+ {
+ 	char *acdbdata, *dsp_libs, *sns_cfg, *sns_reg, *sns_reg_config;
+ 	char *sns_reg_version, *sns_reg_temp_json, *socinfo;
++	char *ssc_mode, *ssc_hw_rev;
+ 	size_t n_prefix;
+ 	struct hexagonfs_dirent *persist_dir, *vendor_dir;
+ 
+@@ -127,6 +137,8 @@
+ 	sns_reg_temp_json = malloc(n_prefix + strlen(SNS_REG_TEMP_JSON) + 1);
+ 	sns_reg_config = malloc(n_prefix + strlen(SNS_REG_CONFIG) + 1);
+ 	socinfo = malloc(n_prefix + strlen(SYSFS_SOCINFO) + 1);
++	ssc_mode = malloc(n_prefix + strlen(SYSFS_SSC_MODE) + 1);
++	ssc_hw_rev = malloc(n_prefix + strlen(SYSFS_SSC_HW_REV) + 1);
+ 
+ 	dsp_libs = malloc(n_prefix + strlen(DSP_LIBS) + strlen(dsp) + 1);
+ 
+@@ -165,6 +177,16 @@
+ 		strcat(socinfo, SYSFS_SOCINFO);
+ 	}
+ 
++	if (ssc_mode != NULL) {
++		strcpy(ssc_mode, prefix);
++		strcat(ssc_mode, SYSFS_SSC_MODE);
++	}
++
++	if (ssc_hw_rev != NULL) {
++		strcpy(ssc_hw_rev, prefix);
++		strcat(ssc_hw_rev, SYSFS_SSC_HW_REV);
++	}
++
+ 	if (dsp_libs != NULL) {
+ 		strcpy(dsp_libs, prefix);
+ 		strcat(dsp_libs, DSP_LIBS);
+@@ -219,9 +241,17 @@
+ 			hfs_map("registry", sns_reg),
+ 			hfs_map("sns_reg_version", sns_reg_version),
+ 			hfs_map("temp.json", sns_reg_temp_json),
+-			hfs_mkdir("sys", 1,
++			hfs_mkdir("sys", 2,
+ 				hfs_mkdir("devices", 1,
+ 					hfs_map_or_empty("soc0", socinfo)
++				),
++				hfs_mkdir("class", 1,
++					hfs_mkdir("sensors", 1,
++						hfs_mkdir("ssc_core", 2,
++							hfs_map("ssc_mode", ssc_mode),
++							hfs_map("ssc_hw_rev", ssc_hw_rev)
++						)
++					)
+ 				)
+ 			),
+ 			hfs_mkdir("system", 1,

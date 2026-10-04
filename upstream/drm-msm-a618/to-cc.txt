@@ -1,0 +1,14 @@
+Abhinav Kumar <abhinav.kumar@linux.dev>
+Akhil P Oommen <akhilpo@oss.qualcomm.com>
+David Airlie <airlied@gmail.com>
+Dmitry Baryshkov <lumag@kernel.org>
+dri-devel@lists.freedesktop.org
+freedreno@lists.freedesktop.org
+Jessica Zhang <jesszhan0024@gmail.com>
+Konrad Dybcio <konradybcio@kernel.org>
+linux-arm-msm@vger.kernel.org
+linux-kernel@vger.kernel.org
+Marijn Suijten <marijn.suijten@somainline.org>
+Rob Clark <robin.clark@oss.qualcomm.com>
+Sean Paul <sean@poorly.run>
+Simona Vetter <simona@ffwll.ch>

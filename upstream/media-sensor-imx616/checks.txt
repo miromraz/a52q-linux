@@ -1,0 +1,39 @@
+# checkpatch.pl --strict (media-sensor-imx616)
+----------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-sensor-imx616/v1-0001-dt-bindings-media-add-Sony-IMX616.patch
+----------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+total: 0 errors, 0 warnings, 0 checks, 117 lines checked
+
+/home/realni/linux-a52q/upstream/media-sensor-imx616/v1-0001-dt-bindings-media-add-Sony-IMX616.patch has no obvious style problems and is ready for submission.
+----------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-sensor-imx616/v1-0002-media-i2c-add-Sony-IMX616-sensor-driver.patch
+----------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+CHECK: multiple assignments should be avoided
+#455: FILE: drivers/media/i2c/imx616.c:375:
++	fse->min_width = fse->max_width = imx616_modes[fse->index].width;
+
+CHECK: multiple assignments should be avoided
+#456: FILE: drivers/media/i2c/imx616.c:376:
++	fse->min_height = fse->max_height = imx616_modes[fse->index].height;
+
+total: 0 errors, 0 warnings, 2 checks, 994 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-sensor-imx616/v1-0002-media-i2c-add-Sony-IMX616-sensor-driver.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

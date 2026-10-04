@@ -1,0 +1,31 @@
+From 178d0645c2044748e029859ace2edbc2dcf6eed8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:40:54 +0200
+Subject: [PATCH v1 0/2] drm/panel: add Samsung S6E3FC3 (AMS646YD04)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add a binding and driver for the Samsung S6E3FC3 command-mode DSI panel
+(AMS646YD04 module) used on the Samsung Galaxy A52 4G (a52q).
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Miroslav Mráz (2):
+  dt-bindings: display: panel: add Samsung S6E3FC3
+  drm/panel: samsung-s6e3fc3: add driver for the AMS646YD04 panel
+
+ .../display/panel/samsung,s6e3fc3.yaml        |  70 +++
+ drivers/gpu/drm/panel/Kconfig                 |  13 +
+ drivers/gpu/drm/panel/Makefile                |   1 +
+ drivers/gpu/drm/panel/panel-samsung-s6e3fc3.c | 426 ++++++++++++++++++
+ 4 files changed, 510 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/display/panel/samsung,s6e3fc3.yaml
+ create mode 100644 drivers/gpu/drm/panel/panel-samsung-s6e3fc3.c
+
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

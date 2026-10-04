@@ -1,0 +1,75 @@
+From fef7c9fbaa378ba4c729ea1afcfc08eec49847ac Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:08:46 +0200
+Subject: [PATCH v1] wifi: ath10k: demote chan info freq 0 warning to debug
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+WCN3990 firmware emits a chan_info event with freq 0 on every scan. That
+frequency maps to no survey channel, so freq_to_idx() returns an
+out-of-bounds index and both ath10k_wmi_event_chan_info_unpaired() and
+ath10k_wmi_event_chan_info_paired() log an "invalid frequency" warning.
+The event is harmless, but the warning is printed on every scan and spams
+the kernel log.
+
+Log the freq 0 case at debug level instead, as commit 8a952a955de7
+("ath10k: demote chan info without scan request warning") did for the
+sibling warning. Genuinely invalid, non-zero frequencies still warn.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/net/wireless/ath/ath10k/wmi.c | 28 +++++++++++++++++++++++----
+ 1 file changed, 24 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/net/wireless/ath/ath10k/wmi.c b/drivers/net/wireless/ath/ath10k/wmi.c
+index e57588c19c80..dee0fa91a887 100644
+--- a/drivers/net/wireless/ath/ath10k/wmi.c
++++ b/drivers/net/wireless/ath/ath10k/wmi.c
+@@ -2735,8 +2735,18 @@ static void ath10k_wmi_event_chan_info_unpaired(struct ath10k *ar,
+ 
+ 	idx = freq_to_idx(ar, params->freq);
+ 	if (idx >= ARRAY_SIZE(ar->survey)) {
+-		ath10k_warn(ar, "chan info: invalid frequency %d (idx %d out of bounds)\n",
+-			    params->freq, idx);
++		/*
++		 * Some firmware emits a chan_info event with freq 0 on every
++		 * scan; it maps to no survey channel and is harmless, so log
++		 * only that case at debug level (as commit 8a952a955de7 did for
++		 * the sibling warning). Keep the warning for other bad freqs.
++		 */
++		if (params->freq)
++			ath10k_warn(ar, "chan info: invalid frequency %d (idx %d out of bounds)\n",
++				    params->freq, idx);
++		else
++			ath10k_dbg(ar, ATH10K_DBG_WMI, "chan info: invalid frequency %d (idx %d out of bounds)\n",
++				   params->freq, idx);
+ 		return;
+ 	}
+ 
+@@ -2766,8 +2776,18 @@ static void ath10k_wmi_event_chan_info_paired(struct ath10k *ar,
+ 
+ 	idx = freq_to_idx(ar, params->freq);
+ 	if (idx >= ARRAY_SIZE(ar->survey)) {
+-		ath10k_warn(ar, "chan info: invalid frequency %d (idx %d out of bounds)\n",
+-			    params->freq, idx);
++		/*
++		 * Some firmware emits a chan_info event with freq 0 on every
++		 * scan; it maps to no survey channel and is harmless, so log
++		 * only that case at debug level (as commit 8a952a955de7 did for
++		 * the sibling warning). Keep the warning for other bad freqs.
++		 */
++		if (params->freq)
++			ath10k_warn(ar, "chan info: invalid frequency %d (idx %d out of bounds)\n",
++				    params->freq, idx);
++		else
++			ath10k_dbg(ar, ATH10K_DBG_WMI, "chan info: invalid frequency %d (idx %d out of bounds)\n",
++				   params->freq, idx);
+ 		return;
+ 	}
+ 
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

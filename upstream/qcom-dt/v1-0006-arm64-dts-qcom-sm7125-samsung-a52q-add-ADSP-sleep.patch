@@ -1,0 +1,65 @@
+From 62b5ec7a97d0e0b61ddcfe5a4ae48d9968187c0e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:26:06 +0200
+Subject: [PATCH v1 06/22] arm64: dts: qcom: sm7125-samsung-a52q: add ADSP
+ sleepstate SMP2P
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add the "sleepstate" and "sleepstate_see" entries on the ADSP (lpass)
+SMP2P edge and the smp2p-sleepstate consumer node. This lets the AP
+publish its sleep state to the ADSP sensor framework, which otherwise
+faults on system suspend and takes the ADSP down.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 25 +++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index 4bea09163ada..e9596e53a61d 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -14,6 +14,17 @@ / {
+ 	model = "Samsung Galaxy A52";
+ 	compatible = "samsung,a52q", "qcom,sm7125";
+ 	qcom,board-id = <0x22 0x6>;
++
++	/*
++	 * Publish the AP sleep state to the ADSP sensor framework (SEE).
++	 * Without it the ADSP faults on system suspend, see
++	 * drivers/soc/qcom/smp2p_sleepstate.c.
++	 */
++	smp2p-sleepstate {
++		compatible = "qcom,smp2p-sleepstate";
++		qcom,smem-states = <&sleepstate_smp2p_out 12>;
++		interrupts-extended = <&sleepstate_smp2p_in 0 IRQ_TYPE_EDGE_RISING>;
++	};
+ };
+ 
+ &rmtfs_mem {
+@@ -150,6 +161,20 @@ &remoteproc_mpss {
+ 	status = "okay";
+ };
+ 
++/* SMP2P sleepstate entries on the ADSP edge, consumed by smp2p-sleepstate. */
++&{/smp2p-lpass} {
++	sleepstate_smp2p_out: sleepstate-out {
++		qcom,entry-name = "sleepstate";
++		#qcom,smem-state-cells = <1>;
++	};
++
++	sleepstate_smp2p_in: sleepstate-in {
++		qcom,entry-name = "sleepstate_see";
++		interrupt-controller;
++		#interrupt-cells = <2>;
++	};
++};
++
+ &tlmm {
+ 	tsp_int: tsp-int-state {
+ 		pins = "gpio9";
+-- 
+2.55.0
+

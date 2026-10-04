@@ -1,0 +1,4 @@
+Bjorn Andersson <andersson@kernel.org>
+Konrad Dybcio <konradybcio@kernel.org>
+linux-arm-msm@vger.kernel.org
+linux-kernel@vger.kernel.org

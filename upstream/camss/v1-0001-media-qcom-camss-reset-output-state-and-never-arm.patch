@@ -1,0 +1,122 @@
+From d974b07ca9b34c1917b78e2609dfd0c49c59f833 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Fri, 2 Oct 2026 21:30:31 +0200
+Subject: [PATCH v1 1/4] media: qcom: camss: reset output state and never arm
+ WM without a buffer
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+After a capture was torn down abnormally (the userspace client killed
+mid-stream), every later capture on every camera returned no frames and
+the IFE SMMU logged an unhandled context fault at iova 0 on stream-on
+(fsr=0x402 TF, WNR, cbfrsynra=0x820). Once that fault is taken the
+context bank wedges, so all subsequent camss DMA fails.
+
+Three issues combined to leave a stale/zero DMA address in the write
+master:
+
+- video_stop_streaming() returned early when a subdev s_stream(0) call
+  failed, skipping video_device_pipeline_stop() and flush_buffers(), so
+  the queued buffers were never returned and stayed referenced in the
+  VFE output lists. Log the error and keep going so the buffers are
+  always flushed.
+
+- vfe_flush_buffers() returned the active buffers to vb2 but left
+  output->buf[] and gen2.active_num set, so a freed buffer pointer could
+  survive into the next stream-on. Clear them.
+
+- vfe_enable_output_v2() armed the write master with vfe_wm_start()
+  before any buffer address was programmed; if no pending buffer was
+  available the WM was left enabled pointing at address 0. Disarm it and
+  fail the stream-on instead.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/media/platform/qcom/camss/camss-vfe.c | 24 +++++++++++++++++++
+ .../media/platform/qcom/camss/camss-video.c   | 20 ++++++++++++----
+ 2 files changed, 39 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-vfe.c b/drivers/media/platform/qcom/camss/camss-vfe.c
+index e747dcacb4f0..295f9df412e5 100644
+--- a/drivers/media/platform/qcom/camss/camss-vfe.c
++++ b/drivers/media/platform/qcom/camss/camss-vfe.c
+@@ -556,6 +556,20 @@ int vfe_enable_output_v2(struct vfe_line *line)
+ 		ops->reg_update(vfe, line->id);
+ 	}
+ 
++	/*
++	 * vfe_wm_start() armed the write master, but its image address is only
++	 * programmed by vfe_wm_update() once a buffer is pulled from the
++	 * pending list. If none was available, disarm the WM again instead of
++	 * leaving it enabled pointing at address 0 - that would fault the IFE
++	 * SMMU context bank on the first frame and wedge all further capture.
++	 */
++	if (!output->gen2.active_num) {
++		ops->vfe_wm_stop(vfe, output->wm_idx[0]);
++		output->state = VFE_OUTPUT_RESERVED;
++		spin_unlock_irqrestore(&vfe->output_lock, flags);
++		return -ENOBUFS;
++	}
++
+ 	spin_unlock_irqrestore(&vfe->output_lock, flags);
+ 
+ 	return 0;
+@@ -1203,6 +1217,16 @@ int vfe_flush_buffers(struct camss_video *vid,
+ 		output->last_buffer = NULL;
+ 	}
+ 
++	/*
++	 * Fully reset the output state so no stale buffer pointer or active
++	 * count survives into the next stream-on (e.g. after an abnormal
++	 * teardown), which would otherwise be programmed into the write
++	 * master as a freed/zero DMA address.
++	 */
++	output->buf[0] = NULL;
++	output->buf[1] = NULL;
++	output->gen2.active_num = 0;
++
+ 	spin_unlock_irqrestore(&vfe->output_lock, flags);
+ 
+ 	return 0;
+diff --git a/drivers/media/platform/qcom/camss/camss-video.c b/drivers/media/platform/qcom/camss/camss-video.c
+index 7737b3ff48ad..36105233570b 100644
+--- a/drivers/media/platform/qcom/camss/camss-video.c
++++ b/drivers/media/platform/qcom/camss/camss-video.c
+@@ -327,11 +327,16 @@ static void video_stop_streaming(struct vb2_queue *q)
+ 		subdev = media_entity_to_v4l2_subdev(entity);
+ 
+ 		ret = v4l2_subdev_call(subdev, video, s_stream, 0);
+-
+-		if (ret) {
+-			dev_err(video->camss->dev, "Video pipeline stop failed: %d\n", ret);
+-			return;
+-		}
++		if (ret)
++			dev_err(video->camss->dev,
++				"Video pipeline stop failed: %d\n", ret);
++		/*
++		 * Keep walking and always reach flush_buffers() below even on
++		 * error: returning early would leak the queued buffers back
++		 * into the driver's output lists, so the next stream-on would
++		 * program a stale/freed buffer address into the write master
++		 * and fault the IFE SMMU context bank.
++		 */
+ 
+ 		/*
+ 		 * Stop at the first external subdev: it stops its own
+@@ -719,6 +724,11 @@ int msm_video_register(struct camss_video *video, struct v4l2_device *v4l2_dev,
+ 	q->io_modes = VB2_DMABUF | VB2_MMAP | VB2_READ;
+ 	q->timestamp_flags = V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
+ 	q->buf_struct_size = sizeof(struct camss_buffer);
++	/*
++	 * The VFE write master needs a buffer address before it is armed, so
++	 * only start streaming once at least one buffer has been queued.
++	 */
++	q->min_queued_buffers = 1;
+ 	q->dev = video->camss->dev;
+ 	q->lock = &video->q_lock;
+ 	ret = vb2_queue_init(q);
+-- 
+2.55.0
+

@@ -1,0 +1,37 @@
+From 436f59616d73a217e241e6f7faa01a29fab31ed6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:23:57 +0200
+Subject: [PATCH v1 0/2] media: i2c: add Samsung S5K3L6XX sensor driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Samsung S5K3L6XX is a 13MP CMOS image sensor connected over a 4-lane
+MIPI CSI-2 D-PHY bus. It is the ultra-wide camera of the Samsung Galaxy
+A52 4G (a52q, SM7125).
+
+This series adds a device tree binding and a V4L2 sub-device driver for
+it. The driver is based on the S5K3L6XX driver by Martin Kepplinger and
+Dorota Czaplejewicz (Purism SPC), reworked onto the v4l2-cci accessors
+with register tables decoded from the vendor CamX sensor module. A
+4000x3000 mode and a 2x2-binned 2000x1500 mode at 30 fps are supported.
+
+Tested on the Galaxy A52 with libcamera (simple pipeline, camss) on a
+downstream 6.14 kernel; the register tables are unchanged since.
+
+Miroslav Mráz (2):
+  dt-bindings: media: add Samsung S5K3L6XX
+  media: i2c: add Samsung S5K3L6XX sensor driver
+
+ .../bindings/media/i2c/samsung,s5k3l6xx.yaml  | 105 +++
+ MAINTAINERS                                   |   7 +
+ drivers/media/i2c/Kconfig                     |  11 +
+ drivers/media/i2c/Makefile                    |   1 +
+ drivers/media/i2c/s5k3l6xx.c                  | 660 ++++++++++++++++++
+ 5 files changed, 784 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/media/i2c/samsung,s5k3l6xx.yaml
+ create mode 100644 drivers/media/i2c/s5k3l6xx.c
+
+-- 
+2.55.0
+

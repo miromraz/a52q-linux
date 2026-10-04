@@ -1,0 +1,32 @@
+From ffad58ec5644ccdc4ee52e7d41d5d7f781595641 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:43:46 +0200
+Subject: [PATCH v1 4/6] media: qcom: camss: Mark SC7180 CSIPHY as gen2
+
+The SC7180 CSIPHY uses the 3-phase (gen2) csiphy_ops_3ph_1_0 block, but
+CAMSS_7180 was missing from csiphy_is_gen2(), so csiphy_lanes_enable()
+took the gen1 configuration path and never applied the 3-phase lane
+register tables. Add CAMSS_7180 to csiphy_is_gen2().
+
+This is independent of the C-PHY support and applies on top of the base
+SC7180 CAMSS support on its own.
+
+---
+ drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c b/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
+index 25a3554ef201..54b3d1a5e295 100644
+--- a/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
++++ b/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
+@@ -1215,6 +1215,7 @@ static bool csiphy_is_gen2(u32 version)
+ 	case CAMSS_2290:
+ 	case CAMSS_6150:
+ 	case CAMSS_6350:
++	case CAMSS_7180:
+ 	case CAMSS_7280:
+ 	case CAMSS_8250:
+ 	case CAMSS_8280XP:
+-- 
+2.55.0
+

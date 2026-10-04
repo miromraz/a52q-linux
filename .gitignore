@@ -9,3 +9,12 @@ cameras/libcamera/build-work/
 lineage/*.zip
 lineage/*.tar
 __pycache__/
+*.log
+evidence-*/
+logs-*/
+k73/
+k73-*/
+mainline-stage/
+nfc-vendor-blobs/
+*.dtb
+*.deb

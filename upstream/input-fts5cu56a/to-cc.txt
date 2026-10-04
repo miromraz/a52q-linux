@@ -1,0 +1,12 @@
+Alexandre Torgue <alexandre.torgue@foss.st.com>
+Conor Dooley <conor+dt@kernel.org>
+devicetree@vger.kernel.org
+Dmitry Torokhov <dmitry.torokhov@gmail.com>
+Henrik Rydberg <rydberg@bitmath.org>
+Krzysztof Kozlowski <krzk+dt@kernel.org>
+linux-arm-kernel@lists.infradead.org
+linux-input@vger.kernel.org
+linux-kernel@vger.kernel.org
+linux-stm32@st-md-mailman.stormreply.com
+Maxime Coquelin <mcoquelin.stm32@gmail.com>
+Rob Herring <robh@kernel.org>

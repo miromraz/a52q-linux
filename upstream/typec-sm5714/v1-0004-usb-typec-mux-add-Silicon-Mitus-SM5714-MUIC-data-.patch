@@ -1,0 +1,244 @@
+From c2507fae6202f4924a7ac683d646b7dd9bd329bc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Wed, 30 Sep 2026 17:10:50 +0200
+Subject: [PATCH v1 4/4] usb: typec: mux: add Silicon Mitus SM5714 MUIC data
+ switch driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The SM5714 MUIC contains the analog switch for the USB D+/D- data
+lines. In automatic mode it runs BC1.2 charger detection and routes
+the data lines itself, which works while the port acts as a USB
+device. When the port acts as a host it leaves the data lines open,
+so the switch has to be forced onto the USB path manually.
+
+Add a Type-C mode switch driver: it is driven through the connector
+graph by the SM5714 Type-C CC detection block. TYPEC_STATE_USB forces
+the USB data path (manual mode), while any other state returns the
+switch to automatic mode so BC1.2 charger detection keeps working.
+Alternate modes are rejected since this switch only routes USB D+/D-.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ MAINTAINERS                         |   1 +
+ drivers/usb/typec/mux/Kconfig       |  10 ++
+ drivers/usb/typec/mux/Makefile      |   1 +
+ drivers/usb/typec/mux/sm5714-muic.c | 161 ++++++++++++++++++++++++++++
+ 4 files changed, 173 insertions(+)
+ create mode 100644 drivers/usb/typec/mux/sm5714-muic.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 0156c8064a17..097eb14d3d0b 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -25086,6 +25086,7 @@ M:	Miroslav Mráz <miroslav.mraz@techmania.cz>
+ L:	linux-usb@vger.kernel.org
+ S:	Maintained
+ F:	Documentation/devicetree/bindings/usb/siliconmitus,sm5714-muic.yaml
++F:	drivers/usb/typec/mux/sm5714-muic.c
+ 
+ SILICON MITUS SM5714 TYPE-C CC DRIVER
+ M:	Miroslav Mráz <miroslav.mraz@techmania.cz>
+diff --git a/drivers/usb/typec/mux/Kconfig b/drivers/usb/typec/mux/Kconfig
+index 6dd8f961b593..dcd0978fdd52 100644
+--- a/drivers/usb/typec/mux/Kconfig
++++ b/drivers/usb/typec/mux/Kconfig
+@@ -76,6 +76,16 @@ config TYPEC_MUX_PTN36502
+ 	  Say Y or M if your system has a NXP PTN36502 Type-C redriver chip
+ 	  found on some devices with a Type-C port.
+ 
++config TYPEC_MUX_SM5714
++	tristate "Silicon Mitus SM5714 MUIC USB data switch driver"
++	depends on I2C
++	select REGMAP_I2C
++	help
++	  Driver for the USB D+/D- data switch in the Silicon Mitus SM5714
++	  MUIC, used as a Type-C mode switch to force the data lines onto the
++	  USB path while the port operates as a host.
++	  If compiled as a module, the module will be named sm5714-muic.
++
+ config TYPEC_MUX_TUSB1046
+ 	tristate "TI TUSB1046 Type-C crosspoint switch driver"
+ 	depends on I2C
+diff --git a/drivers/usb/typec/mux/Makefile b/drivers/usb/typec/mux/Makefile
+index b4f599eb5053..8b9214902543 100644
+--- a/drivers/usb/typec/mux/Makefile
++++ b/drivers/usb/typec/mux/Makefile
+@@ -8,5 +8,6 @@ obj-$(CONFIG_TYPEC_MUX_IT5205)		+= it5205.o
+ obj-$(CONFIG_TYPEC_MUX_NB7VPQ904M)	+= nb7vpq904m.o
+ obj-$(CONFIG_TYPEC_MUX_PS883X)		+= ps883x.o
+ obj-$(CONFIG_TYPEC_MUX_PTN36502)	+= ptn36502.o
++obj-$(CONFIG_TYPEC_MUX_SM5714)		+= sm5714-muic.o
+ obj-$(CONFIG_TYPEC_MUX_TUSB1046)	+= tusb1046.o
+ obj-$(CONFIG_TYPEC_MUX_WCD939X_USBSS)	+= wcd939x-usbss.o
+diff --git a/drivers/usb/typec/mux/sm5714-muic.c b/drivers/usb/typec/mux/sm5714-muic.c
+new file mode 100644
+index 000000000000..3d527f9008cc
+--- /dev/null
++++ b/drivers/usb/typec/mux/sm5714-muic.c
+@@ -0,0 +1,161 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Silicon Mitus SM5714 MUIC USB data switch, used as a Type-C mode switch.
++ *
++ * The SM5714 MUIC contains the analog switch for the USB D+/D- data lines.
++ * In automatic mode it runs BC1.2 charger detection and routes the data lines
++ * itself, which works while the port acts as a USB device. When the port acts
++ * as a host it leaves the data lines open, so the switch has to be forced onto
++ * the USB path manually. The Type-C CC detection block drives this switch
++ * through the connector graph: TYPEC_STATE_USB forces the USB path, any other
++ * state returns to automatic so BC1.2 keeps working.
++ *
++ * Copyright (C) 2026 Miroslav Mráz <miroslav.mraz@techmania.cz>
++ */
++
++#include <linux/bitfield.h>
++#include <linux/i2c.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/property.h>
++#include <linux/regmap.h>
++#include <linux/usb/typec_altmode.h>
++#include <linux/usb/typec_mux.h>
++
++#define SM5714_MUIC_REG_DEVICE_ID	0x00
++#define SM5714_MUIC_DEVICE_ID_VENDOR	GENMASK(2, 0)
++#define SM5714_MUIC_VENDOR_ID		0x01
++
++#define SM5714_MUIC_REG_MANUAL_SW	0x06
++#define SM5714_MUIC_MANUAL_SW_MANUAL	BIT(7)
++#define SM5714_MUIC_MANUAL_SW_DM	GENMASK(5, 3)
++#define SM5714_MUIC_MANUAL_SW_DP	GENMASK(2, 0)
++/* D+/D- path selectors: 0 = open, 1 = USB */
++#define SM5714_MUIC_PATH_OPEN		0x0
++#define SM5714_MUIC_PATH_USB		0x1
++
++/* Force both data lines onto the USB path (manual mode). */
++#define SM5714_MUIC_MANUAL_SW_USB \
++	(SM5714_MUIC_MANUAL_SW_MANUAL | \
++	 FIELD_PREP(SM5714_MUIC_MANUAL_SW_DM, SM5714_MUIC_PATH_USB) | \
++	 FIELD_PREP(SM5714_MUIC_MANUAL_SW_DP, SM5714_MUIC_PATH_USB))
++/* Hand the data lines back to automatic BC1.2 routing. */
++#define SM5714_MUIC_MANUAL_SW_AUTO	0x00
++
++struct sm5714_muic {
++	struct regmap *regmap;
++	struct typec_mux_dev *mux;
++};
++
++static const struct regmap_config sm5714_muic_regmap_config = {
++	.reg_bits = 8,
++	.val_bits = 8,
++	.max_register = SM5714_MUIC_REG_MANUAL_SW,
++};
++
++static int sm5714_muic_mux_set(struct typec_mux_dev *mux,
++			       struct typec_mux_state *state)
++{
++	struct sm5714_muic *muic = typec_mux_get_drvdata(mux);
++	unsigned int manual_sw;
++
++	switch (state->mode) {
++	case TYPEC_STATE_USB:
++		manual_sw = SM5714_MUIC_MANUAL_SW_USB;
++		break;
++	case TYPEC_STATE_SAFE:
++		manual_sw = SM5714_MUIC_MANUAL_SW_AUTO;
++		break;
++	default:
++		/* This switch only routes USB D+/D-; reject alternate modes. */
++		if (state->alt)
++			return -EOPNOTSUPP;
++		manual_sw = SM5714_MUIC_MANUAL_SW_AUTO;
++		break;
++	}
++
++	return regmap_write(muic->regmap, SM5714_MUIC_REG_MANUAL_SW, manual_sw);
++}
++
++static int sm5714_muic_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct typec_mux_desc mux_desc = { };
++	struct sm5714_muic *muic;
++	unsigned int val;
++	int ret;
++
++	muic = devm_kzalloc(dev, sizeof(*muic), GFP_KERNEL);
++	if (!muic)
++		return -ENOMEM;
++
++	muic->regmap = devm_regmap_init_i2c(client, &sm5714_muic_regmap_config);
++	if (IS_ERR(muic->regmap))
++		return dev_err_probe(dev, PTR_ERR(muic->regmap),
++				     "failed to initialize regmap\n");
++
++	ret = regmap_read(muic->regmap, SM5714_MUIC_REG_DEVICE_ID, &val);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to read device ID\n");
++
++	if (FIELD_GET(SM5714_MUIC_DEVICE_ID_VENDOR, val) != SM5714_MUIC_VENDOR_ID)
++		return dev_err_probe(dev, -ENODEV,
++				     "unexpected device ID 0x%02x\n", val);
++
++	/* Leave the switch in automatic mode so BC1.2 works until we go host. */
++	ret = regmap_write(muic->regmap, SM5714_MUIC_REG_MANUAL_SW,
++			   SM5714_MUIC_MANUAL_SW_AUTO);
++	if (ret)
++		return dev_err_probe(dev, ret, "failed to reset data switch\n");
++
++	mux_desc.drvdata = muic;
++	mux_desc.fwnode = dev_fwnode(dev);
++	mux_desc.set = sm5714_muic_mux_set;
++
++	muic->mux = typec_mux_register(dev, &mux_desc);
++	if (IS_ERR(muic->mux))
++		return dev_err_probe(dev, PTR_ERR(muic->mux),
++				     "failed to register typec mux\n");
++
++	i2c_set_clientdata(client, muic);
++
++	return 0;
++}
++
++static void sm5714_muic_remove(struct i2c_client *client)
++{
++	struct sm5714_muic *muic = i2c_get_clientdata(client);
++
++	typec_mux_unregister(muic->mux);
++
++	/* Restore automatic mode so BC1.2 charger detection keeps working. */
++	regmap_write(muic->regmap, SM5714_MUIC_REG_MANUAL_SW,
++		     SM5714_MUIC_MANUAL_SW_AUTO);
++}
++
++static const struct i2c_device_id sm5714_muic_table[] = {
++	{ .name = "sm5714-muic" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, sm5714_muic_table);
++
++static const struct of_device_id sm5714_muic_of_table[] = {
++	{ .compatible = "siliconmitus,sm5714-muic" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sm5714_muic_of_table);
++
++static struct i2c_driver sm5714_muic_driver = {
++	.driver = {
++		.name = "sm5714-muic",
++		.of_match_table = sm5714_muic_of_table,
++	},
++	.probe		= sm5714_muic_probe,
++	.remove		= sm5714_muic_remove,
++	.id_table	= sm5714_muic_table,
++};
++module_i2c_driver(sm5714_muic_driver);
++
++MODULE_DESCRIPTION("Silicon Mitus SM5714 MUIC USB data switch driver");
++MODULE_AUTHOR("Miroslav Mráz <miroslav.mraz@techmania.cz>");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

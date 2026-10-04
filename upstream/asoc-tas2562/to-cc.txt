@@ -1,0 +1,15 @@
+Andrew Davis <afd@ti.com>
+Baojun Xu <baojun.xu@ti.com>
+Conor Dooley <conor+dt@kernel.org>
+devicetree@vger.kernel.org
+Jaroslav Kysela <perex@perex.cz>
+Kevin Lu <kevin-lu@ti.com>
+Krzysztof Kozlowski <krzk+dt@kernel.org>
+Liam Girdwood <lgirdwood@gmail.com>
+linux-kernel@vger.kernel.org
+linux-sound@vger.kernel.org
+Mark Brown <broonie@kernel.org>
+Rob Herring <robh@kernel.org>
+Sen Wang <sen@ti.com>
+Shenghao Ding <shenghao-ding@ti.com>
+Takashi Iwai <tiwai@suse.com>

@@ -1,0 +1,4 @@
+# checkpatch.pl --strict (ath10k)
+total: 0 errors, 0 warnings, 0 checks, 40 lines checked
+
+/home/realni/linux-a52q/upstream/ath10k/v1-0001-wifi-ath10k-demote-chan-info-freq-0-warning-to-de.patch has no obvious style problems and is ready for submission.

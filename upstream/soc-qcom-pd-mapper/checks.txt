@@ -1,0 +1,4 @@
+# checkpatch.pl --strict (soc-qcom-pd-mapper)
+total: 0 errors, 0 warnings, 0 checks, 7 lines checked
+
+/home/realni/linux-a52q/upstream/soc-qcom-pd-mapper/v1-0001-soc-qcom-pd-mapper-Add-SM7125-support.patch has no obvious style problems and is ready for submission.

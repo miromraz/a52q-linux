@@ -1,0 +1,71 @@
+From 4f5f9b49f174baf33e929e3acd02cb44f53d75b1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:47:57 +0200
+Subject: [PATCH v1 00/22] arm64: dts: qcom: add Samsung Galaxy A52 4G (a52q, SM7125)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add the device tree for the Samsung Galaxy A52 4G (a52q), an SM7125
+(SC7180-family) phone, plus the SC7180 SoC DT additions it relies on
+(CCI/CAMSS nodes, GPI DMA, LPASS audio macros/LPI TLMM).
+
+This is the capstone of the a52q bring-up and depends on the driver and
+binding series sent separately (regulator s2mpb03, power-supply/typec
+sm5714, nfc s3fwrn5, input fts5cu56a, drm panel s6e3fc3, drm/msm A618,
+ASoC tas2562, soc/qcom smp2p + pd-mapper, firmware tzmem, and the media
+camss/sensor series). See SERIES.md.
+
+NOTE: four DT commits (sc7180 CCI/CAMSS, sc7180 GPI DMA, a52q NFC, and
+'allow keys to wake the device') currently lack Signed-off-by lines; the
+author must add them before sending.
+
+Based on v7.3-rc5. On-device verification pending.
+
+Erikas Bitovtas (2):
+  dt-bindings: arm: qcom: Document Samsung Galaxy A52/A72
+  arm64: dts: qcom: sm7125-samsung: add initial device tree
+
+Miroslav Mráz (20):
+  arm64: dts: qcom: sm7125-samsung-a52q: add touch, charger and Type-C
+  arm64: dts: qcom: sm7125-samsung: enable coprocessors, Wi-Fi and
+    Bluetooth
+  arm64: dts: qcom: sm7125-samsung-a52q: enable the DSI panel
+  arm64: dts: qcom: sm7125-samsung-a52q: add ADSP sleepstate SMP2P
+  arm64: dts: qcom: sm7125: add A618 GPU OPPs for speed-bin 159
+  arm64: dts: qcom: sc7180: add GPI DMA engines and wire up QUP
+  arm64: dts: qcom: sm7125-samsung-a52q: add NFC
+  arm64: dts: qcom: sm7125-samsung: allow keys to wake the device
+  arm64: dts: qcom: sc7180: Add CCI and CAMSS nodes
+  arm64: dts: qcom: sc7180: add LPASS audio macros, SoundWire and LPI
+    TLMM
+  arm64: dts: qcom: sm7125-samsung-a52q: add speakers, WCD938x and sound
+    card
+  arm64: dts: qcom: sm7125-samsung-a52q: add S2MPB03 camera PMIC
+  arm64: dts: qcom: sm7125-samsung-a52q: add camera sensors and CAMSS
+  arm64: dts: qcom: sm7125-samsung-a52q: add camera VCM and EEPROMs
+  arm64: dts: qcom: sm7125-samsung: add aliases
+  arm64: dts: qcom: sm7125-samsung: allow non-secure ADSP FastRPC
+  arm64: dts: qcom: sm7125-samsung: enable GPI DMA
+  arm64: dts: qcom: sm7125-samsung-a52q: add the q6asm frontend DAIs
+  arm64: dts: qcom: sm7125-samsung-a52q: describe the q6afe ports
+  arm64: dts: qcom: sm7125-samsung-a52q: add GC5035 depth and macro
+    cameras
+
+ .../devicetree/bindings/arm/qcom.yaml         |   2 +
+ arch/arm64/boot/dts/qcom/Makefile             |   2 +
+ arch/arm64/boot/dts/qcom/sc7180.dtsi          | 560 +++++++++++
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 883 ++++++++++++++++++
+ .../boot/dts/qcom/sm7125-samsung-a72q.dts     |  20 +
+ .../boot/dts/qcom/sm7125-samsung-common.dtsi  | 720 ++++++++++++++
+ arch/arm64/boot/dts/qcom/sm7125.dtsi          |  39 +
+ 7 files changed, 2226 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+ create mode 100644 arch/arm64/boot/dts/qcom/sm7125-samsung-a72q.dts
+ create mode 100644 arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

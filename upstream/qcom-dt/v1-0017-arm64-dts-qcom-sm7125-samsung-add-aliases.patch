@@ -1,0 +1,36 @@
+From 64b76e27bea6709e920294e234a99ccdf2d36cae Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:18:27 +0200
+Subject: [PATCH v1 17/22] arm64: dts: qcom: sm7125-samsung: add aliases
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Name the Bluetooth UART serial1 like other SC7180 boards so it gets a
+stable line, and add the usual bluetooth0/wifi0 aliases.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+index 2f785b676718..0abb51084754 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+@@ -22,6 +22,12 @@ / {
+ 
+ 	qcom,msm-id = <QCOM_ID_SM7125 0x0>;
+ 
++	aliases {
++		bluetooth0 = &bluetooth;
++		serial1 = &uart3;
++		wifi0 = &wifi;
++	};
++
+ 	chosen {
+ 		#address-cells = <2>;
+ 		#size-cells = <2>;
+-- 
+2.55.0
+

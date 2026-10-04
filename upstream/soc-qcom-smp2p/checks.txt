@@ -1,0 +1,48 @@
+# checkpatch.pl --strict (soc-qcom-smp2p)
+---------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/soc-qcom-smp2p/v1-0001-dt-bindings-soc-qcom-smp2p-add-sleepstate-support.patch
+---------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 8 lines checked
+
+/home/realni/linux-a52q/upstream/soc-qcom-smp2p/v1-0001-dt-bindings-soc-qcom-smp2p-add-sleepstate-support.patch has no obvious style problems and is ready for submission.
+---------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/soc-qcom-smp2p/v1-0002-dt-bindings-soc-qcom-add-SMP2P-AP-sleep-state-not.patch
+---------------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#23: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 50 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/soc-qcom-smp2p/v1-0002-dt-bindings-soc-qcom-add-SMP2P-AP-sleep-state-not.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/soc-qcom-smp2p/v1-0003-soc-qcom-add-SMP2P-AP-sleep-state-notifier.patch
+--------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#58: 
+new file mode 100644
+
+WARNING: DT compatible string "qcom,smp2p-sleepstate" appears un-documented -- check ./Documentation/devicetree/bindings/
+#170: FILE: drivers/soc/qcom/smp2p_sleepstate.c:108:
++	{ .compatible = "qcom,smp2p-sleepstate" },
+
+total: 0 errors, 2 warnings, 0 checks, 146 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/soc-qcom-smp2p/v1-0003-soc-qcom-add-SMP2P-AP-sleep-state-notifier.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

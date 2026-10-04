@@ -1,0 +1,100 @@
+From 3ae28bae74880ff976cd986597f2fd2014d62864 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:03:15 +0200
+Subject: [PATCH v1 14/22] arm64: dts: qcom: sm7125-samsung-a52q: add S2MPB03
+ camera PMIC
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Samsung Galaxy A52 (a52q) powers its cameras from an S2MPB03 camera
+PMIC sitting on a bit-banged I2C bus (gpio25/gpio26), plus two GPIO-
+switched fixed LDOs (gpio63, gpio65). Add the PMIC and the two fixed
+regulators so the camera sensors, VCM and EEPROMs can reference their
+supplies.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 66 +++++++++++++++++++
+ 1 file changed, 66 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index e6cc1ac8d750..47f4b3d5e07f 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -100,6 +100,72 @@ wcd938x: audio-codec {
+ 
+ 		#sound-dai-cells = <1>;
+ 	};
++
++	/* S2MPB03 camera PMIC on a bit-banged bus (gpio25 SDA, gpio26 SCL) */
++	i2c-cam-pmic {
++		compatible = "i2c-gpio";
++		sda-gpios = <&tlmm 25 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
++		scl-gpios = <&tlmm 26 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
++		i2c-gpio,delay-us = <2>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		pmic@56 {
++			compatible = "samsung,s2mpb03";
++			reg = <0x56>;
++
++			regulators {
++				vreg_cam_l1: ldo1 {	/* front/UW vdig */
++					regulator-min-microvolt = <1050000>;
++					regulator-max-microvolt = <1050000>;
++				};
++
++				vreg_cam_l2: ldo2 {	/* main vdig */
++					regulator-min-microvolt = <1100000>;
++					regulator-max-microvolt = <1100000>;
++				};
++
++				vreg_cam_l3: ldo3 {	/* vio, all sensors */
++					regulator-min-microvolt = <1800000>;
++					regulator-max-microvolt = <1800000>;
++				};
++
++				vreg_cam_l5: ldo5 {	/* main vana */
++					regulator-min-microvolt = <2800000>;
++					regulator-max-microvolt = <2800000>;
++				};
++
++				vreg_cam_l6: ldo6 {	/* front vana */
++					regulator-min-microvolt = <2800000>;
++					regulator-max-microvolt = <2800000>;
++				};
++
++				vreg_cam_l7: ldo7 {	/* main vaf (VCM) */
++					regulator-min-microvolt = <2800000>;
++					regulator-max-microvolt = <2800000>;
++				};
++			};
++		};
++	};
++
++	/* GPIO-switched camera LDOs */
++	vreg_cam0_avdd18: regulator-cam0-avdd18 {
++		compatible = "regulator-fixed";
++		regulator-name = "cam0_avdd_1p8";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		gpio = <&tlmm 63 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
++	vreg_cam2_vana: regulator-cam2-vana {
++		compatible = "regulator-fixed";
++		regulator-name = "cam2_vana";
++		regulator-min-microvolt = <2800000>;
++		regulator-max-microvolt = <2800000>;
++		gpio = <&tlmm 65 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
+ };
+ 
+ &rmtfs_mem {
+-- 
+2.55.0
+

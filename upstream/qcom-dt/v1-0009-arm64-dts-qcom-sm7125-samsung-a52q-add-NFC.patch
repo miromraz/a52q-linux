@@ -1,0 +1,84 @@
+From 9dc8259b2f9f86f06b5d3817654a47fe56350341 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:32:03 +0200
+Subject: [PATCH v1 09/22] arm64: dts: qcom: sm7125-samsung-a52q: add NFC
+
+The A52 has a Samsung S3NRN4V NFC controller on I2C bus 0 at address
+0x27, powered by a fixed 1.8V PVDD regulator gated on TLMM GPIO68. Add
+the regulator, the controller node and its pin configuration.
+
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 43 +++++++++++++++++++
+ 1 file changed, 43 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index e9596e53a61d..eeefcdc4acf8 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -15,6 +15,15 @@ / {
+ 	compatible = "samsung,a52q", "qcom,sm7125";
+ 	qcom,board-id = <0x22 0x6>;
+ 
++	vreg_nfc_pvdd: regulator-nfc-pvdd {
++		compatible = "regulator-fixed";
++		regulator-name = "nfc_pvdd";
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++		gpio = <&tlmm 68 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
+ 	/*
+ 	 * Publish the AP sleep state to the ADSP sensor framework (SEE).
+ 	 * Without it the ADSP faults on system suspend, see
+@@ -45,6 +54,24 @@ &gpu_zap_shader {
+ 	firmware-name = "qcom/sm7125/a52q/a615_zap.mbn";
+ };
+ 
++&i2c0 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	nfc@27 {
++		compatible = "samsung,s3nrn4v";
++		reg = <0x27>;
++
++		interrupts-extended = <&tlmm 37 IRQ_TYPE_EDGE_RISING>;
++		en-gpios = <&tlmm 12 GPIO_ACTIVE_HIGH>;
++		wake-gpios = <&tlmm 36 GPIO_ACTIVE_HIGH>;
++		pvdd-supply = <&vreg_nfc_pvdd>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&nfc_default>;
++	};
++};
++
+ &i2c4 {
+ 	status = "okay";
+ 
+@@ -176,6 +203,22 @@ sleepstate_smp2p_in: sleepstate-in {
+ };
+ 
+ &tlmm {
++	nfc_default: nfc-default-state {
++		int-pins {
++			pins = "gpio31", "gpio37";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-pull-down;
++		};
++
++		ctrl-pins {
++			pins = "gpio12", "gpio36";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-disable;
++		};
++	};
++
+ 	tsp_int: tsp-int-state {
+ 		pins = "gpio9";
+ 		function = "gpio";
+-- 
+2.55.0
+

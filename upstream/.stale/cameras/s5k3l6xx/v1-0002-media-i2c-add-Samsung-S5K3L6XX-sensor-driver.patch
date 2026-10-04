@@ -1,0 +1,744 @@
+From 436f59616d73a217e241e6f7faa01a29fab31ed6 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:19:01 +0200
+Subject: [PATCH v1 2/2] media: i2c: add Samsung S5K3L6XX sensor driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add a V4L2 sub-device driver for the Samsung S5K3L6XX, a 13MP CMOS image
+sensor on a 4-lane MIPI CSI-2 D-PHY interface. It is the ultra-wide
+camera of the Samsung Galaxy A52 4G (a52q, SM7125).
+
+The driver exposes a 4000x3000 mode and a 2x2-binned 2000x1500 mode at
+30 fps with exposure, analogue gain, vblank/hblank and test-pattern
+controls. The register tables were decoded from the vendor CamX sensor
+module.
+
+Based on the S5K3L6XX driver by Martin Kepplinger and Dorota
+Czaplejewicz (Purism SPC).
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ MAINTAINERS                  |   1 +
+ drivers/media/i2c/Kconfig    |  11 +
+ drivers/media/i2c/Makefile   |   1 +
+ drivers/media/i2c/s5k3l6xx.c | 660 +++++++++++++++++++++++++++++++++++
+ 4 files changed, 673 insertions(+)
+ create mode 100644 drivers/media/i2c/s5k3l6xx.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 4a8286cb44ea..ebc492571b0c 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -24381,6 +24381,7 @@ M:	Miroslav Mráz <miroslav.mraz@techmania.cz>
+ L:	linux-media@vger.kernel.org
+ S:	Maintained
+ F:	Documentation/devicetree/bindings/media/i2c/samsung,s5k3l6xx.yaml
++F:	drivers/media/i2c/s5k3l6xx.c
+ 
+ SAMSUNG S5K3M5 CAMERA DRIVER
+ M:	Vladimir Zapolskiy <vladimir.zapolskiy@linaro.org>
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 613f160d0eac..7a0e6d240c97 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -805,6 +805,17 @@ config VIDEO_S5C73M3
+ 	  This is a V4L2 sensor driver for Samsung S5C73M3
+ 	  8 Mpixel camera.
+ 
++config VIDEO_S5K3L6XX
++	tristate "Samsung S5K3L6XX sensor support"
++	depends on OF
++	select V4L2_CCI_I2C
++	help
++	  This is a V4L2 sensor driver for Samsung S5K3L6XX 13MP raw
++	  camera sensor.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called s5k3l6xx.
++
+ config VIDEO_S5K3M5
+ 	tristate "Samsung S5K3M5 sensor support"
+ 	select V4L2_CCI_I2C
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index f529c8cfe880..408a1c54553f 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -130,6 +130,7 @@ obj-$(CONFIG_VIDEO_RDACM20) += rdacm20.o
+ obj-$(CONFIG_VIDEO_RDACM21) += rdacm21.o
+ obj-$(CONFIG_VIDEO_RJ54N1) += rj54n1cb0c.o
+ obj-$(CONFIG_VIDEO_S5C73M3) += s5c73m3/
++obj-$(CONFIG_VIDEO_S5K3L6XX) += s5k3l6xx.o
+ obj-$(CONFIG_VIDEO_S5K3M5) += s5k3m5.o
+ obj-$(CONFIG_VIDEO_S5K5BAF) += s5k5baf.o
+ obj-$(CONFIG_VIDEO_S5K6A3) += s5k6a3.o
+diff --git a/drivers/media/i2c/s5k3l6xx.c b/drivers/media/i2c/s5k3l6xx.c
+new file mode 100644
+index 000000000000..64f44641f424
+--- /dev/null
++++ b/drivers/media/i2c/s5k3l6xx.c
+@@ -0,0 +1,660 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Samsung S5K3L6XX 13M CMOS image sensor driver (Galaxy A52 4G ultra-wide).
++ *
++ * Register tables decoded from the vendor CamX sensor module
++ * (com.samsung.sensormodule.2_0_lsi_s5k3l6.bin, QTI Chromatix): the
++ * 4000x3000@30fps 4-lane RAW10 mode tuned for a 19.2 MHz MCLK, plus a 2x2
++ * binned 2000x1500 mode derived from it (same PLL, same link frequency).
++ *
++ * Copyright (C) 2020-2021 Purism SPC
++ */
++
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/of_graph.h>
++#include <linux/pm_runtime.h>
++#include <linux/regulator/consumer.h>
++
++#include <media/v4l2-cci.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-fwnode.h>
++#include <media/v4l2-subdev.h>
++
++#define S5K3L6XX_REG_CHIP_ID	CCI_REG16(0x0000)
++#define S5K3L6XX_CHIP_ID	0x30c6
++#define S5K3L6XX_REG_MODE_SELECT CCI_REG8(0x0100)
++#define S5K3L6XX_REG_DATA_FORMAT CCI_REG16(0x0112)
++#define S5K3L6XX_REG_LANE_MODE	CCI_REG8(0x0114)
++#define S5K3L6XX_REG_EXPOSURE	CCI_REG16(0x0202)	/* coarse integration time */
++#define S5K3L6XX_REG_ANALOG_GAIN CCI_REG16(0x0204)
++#define S5K3L6XX_REG_FLL	CCI_REG16(0x0340)	/* frame length lines */
++#define S5K3L6XX_REG_LLP	CCI_REG16(0x0342)	/* line length pck */
++#define S5K3L6XX_REG_TEST_PATTERN CCI_REG8(0x0601)
++#define S5K3L6XX_REG_PLL_PD	CCI_REG8(0x3c1e)
++
++/* Pixel array addresses 0..4223 x 0..3135; the vendor crops are centred on it. */
++#define S5K3L6XX_NATIVE_WIDTH	4224
++#define S5K3L6XX_NATIVE_HEIGHT	3136
++#define S5K3L6XX_LLP		4896
++#define S5K3L6XX_FLL_MAX	0xffff
++#define S5K3L6XX_EXPOSURE_DEF	0x03de
++/* Vendor exposureControlInfo: min line count 2, max = frame length - 10. */
++#define S5K3L6XX_EXPOSURE_MIN	2
++#define S5K3L6XX_EXPOSURE_MARGIN 10
++/* Vendor maxAnalogGain 16.0; the gain register is gain * 32. */
++#define S5K3L6XX_AGAIN_MIN	0x20
++#define S5K3L6XX_AGAIN_MAX	0x200
++/* OP PLL: 19.2 MHz / 3 * 93 = 595.2 MHz (1190.4 Mbps/lane). */
++#define S5K3L6XX_LINK_FREQ	595200000LL
++/*
++ * VT PLL: 19.2 MHz / 3 * 112 = 716.8 MHz, 2/3 of it is the pixel rate.
++ * Checks out on the phone: LLP 4896 x FLL 3253 streams at 30.00 fps.
++ */
++#define S5K3L6XX_PIXEL_RATE	477866667LL
++
++#define S5K3L6XX_DEFAULT_MCLK	24000000U
++
++/*
++ * a52q vendor tables, decoded from com.samsung.sensormodule.2_0_lsi_s5k3l6.bin.
++ * MCLK 19.2 MHz, 4-lane RAW10, 4000x3000@30, requested link rate 1190 Mbps/lane.
++ */
++static const struct cci_reg_sequence s5k3l6xx_vendor_init[] = {
++	{CCI_REG16(0x306a), 0x2f4c}, {CCI_REG16(0x306c), 0xca01}, {CCI_REG16(0x307a), 0x0d20},
++	{CCI_REG16(0x309e), 0x002d}, {CCI_REG16(0x3072), 0x0013}, {CCI_REG16(0x3074), 0x0977},
++	{CCI_REG16(0x3076), 0x9411}, {CCI_REG16(0x3024), 0x0016}, {CCI_REG16(0x3002), 0x0e00},
++	{CCI_REG16(0x3006), 0x1000}, {CCI_REG16(0x300a), 0x0c00}, {CCI_REG16(0x3018), 0xc500},
++	{CCI_REG16(0x303a), 0x0204}, {CCI_REG16(0x3266), 0x0001}, {CCI_REG16(0x38da), 0x000a},
++	{CCI_REG16(0x38dc), 0x000b}, {CCI_REG16(0x38d6), 0x000a}, {CCI_REG16(0x3070), 0x3d00},
++	{CCI_REG16(0x3084), 0x1314}, {CCI_REG16(0x3086), 0x0ce7}, {CCI_REG16(0x3004), 0x0800},
++	{CCI_REG16(0x3c08), 0xffff},
++};
++
++static const struct cci_reg_sequence s5k3l6xx_vendor_4000x3000[] = {
++	{CCI_REG16(0x314a), 0x5f00}, {CCI_REG16(0x3064), 0xffcf}, {CCI_REG16(0x3066), 0x7e00},
++	{CCI_REG16(0x309c), 0x0640}, {CCI_REG16(0x380c), 0x001a}, {CCI_REG16(0x32b2), 0x0000},
++	{CCI_REG16(0x32b4), 0x0000}, {CCI_REG16(0x32b6), 0x0000}, {CCI_REG16(0x32b8), 0x0000},
++	{CCI_REG16(0x3090), 0x8800}, {CCI_REG16(0x3238), 0x000c}, {CCI_REG16(0x0100), 0x0000},
++	{CCI_REG16(0x0344), 0x0070}, {CCI_REG16(0x0348), 0x100f}, {CCI_REG16(0x0346), 0x0044},
++	{CCI_REG16(0x034a), 0x0bfb}, {CCI_REG16(0x034c), 0x0fa0}, {CCI_REG16(0x034e), 0x0bb8},
++	{CCI_REG16(0x0202), 0x03de}, {CCI_REG16(0x3400), 0x0000}, {CCI_REG16(0x3402), 0x4e42},
++	{CCI_REG16(0x0136), 0x1333}, {CCI_REG16(0x0304), 0x0003}, {CCI_REG16(0x0306), 0x0070},
++	{CCI_REG16(0x030c), 0x0003}, {CCI_REG16(0x030e), 0x005d}, {CCI_REG16(0x3c16), 0x0000},
++	{CCI_REG16(0x0342), 0x1320}, {CCI_REG16(0x0340), 0x0cb5}, {CCI_REG16(0x0900), 0x0000},
++	{CCI_REG16(0x0386), 0x0001}, {CCI_REG16(0x3452), 0x0000}, {CCI_REG16(0x345a), 0x0000},
++	{CCI_REG16(0x345c), 0x0000}, {CCI_REG16(0x345e), 0x0000}, {CCI_REG16(0x3460), 0x0000},
++	{CCI_REG16(0x38c4), 0x0009}, {CCI_REG16(0x38d8), 0x002a}, {CCI_REG16(0x38da), 0x000a},
++	{CCI_REG16(0x38dc), 0x000b}, {CCI_REG16(0x38c2), 0x000a}, {CCI_REG16(0x38c0), 0x000f},
++	{CCI_REG16(0x38d6), 0x000a}, {CCI_REG16(0x38d4), 0x0009}, {CCI_REG16(0x38b0), 0x000f},
++	{CCI_REG16(0x3932), 0x1000}, {CCI_REG16(0x0820), 0x04a6}, {CCI_REG16(0x3c34), 0x0008},
++	{CCI_REG16(0x3c36), 0x3800}, {CCI_REG16(0x3c38), 0x0020}, {CCI_REG16(0x393e), 0x4000},
++	{CCI_REG16(0x3892), 0x3600}, {CCI_REG16(0x3c1e), 0x0100},
++};
++
++/*
++ * 2x2 binning on top of the 4000x3000 table: same crop, PLL and line length.
++ * 0x0900/0x0386 follow the vendor 4x4 mode (0x0144, 7); without its 0x380c
++ * value the sensor sends no frames. Its 0x3090/0x3238 values are left out:
++ * they zero the image (0x3238) or double the pedestal (0x3090) at 2x2.
++ * Dark noise at 16x gain: std 3.05 binned vs 5.0 full resolution.
++ */
++static const struct cci_reg_sequence s5k3l6xx_bin2x2[] = {
++	{CCI_REG16(0x034c), 2000}, {CCI_REG16(0x034e), 1500},
++	{CCI_REG16(0x0900), 0x0122}, {CCI_REG16(0x0386), 0x0003},
++	{CCI_REG16(0x380c), 0x0046},
++};
++
++struct s5k3l6xx_mode {
++	u32 width;
++	u32 height;
++	u32 fll_def;	/* 30 fps */
++	u32 fll_min;
++	const struct cci_reg_sequence *regs;	/* applied after the 4000x3000 table */
++	unsigned int num_regs;
++};
++
++static const struct s5k3l6xx_mode s5k3l6xx_modes[] = {
++	{ .width = 4000, .height = 3000, .fll_def = 3253, .fll_min = 3253 },
++	{
++		.width = 2000, .height = 1500, .fll_def = 3253, .fll_min = 1626,
++		.regs = s5k3l6xx_bin2x2, .num_regs = ARRAY_SIZE(s5k3l6xx_bin2x2),
++	},
++};
++
++/* Analogue crop of both modes (vendor x 0x0070..0x100f, y 0x0044..0x0bfb). */
++static const struct v4l2_rect s5k3l6xx_crop = {
++	.left = 112, .top = 68, .width = 4000, .height = 3000,
++};
++
++/* RAW10 data format and 4-lane mode, applied after the vendor tables. */
++static const struct cci_reg_sequence s5k3l6xx_fmt[] = {
++	{S5K3L6XX_REG_DATA_FORMAT, 0x0a0a},
++	{S5K3L6XX_REG_LANE_MODE, 0x03},
++};
++
++static const char * const s5k3l6xx_supply_names[] = {
++	"vddio",	/* Digital I/O */
++	"vdda",		/* Analog */
++	"vddd",		/* Digital core */
++};
++#define S5K3L6XX_NUM_SUPPLIES ARRAY_SIZE(s5k3l6xx_supply_names)
++
++static const s64 s5k3l6xx_link_freq_menu[] = { S5K3L6XX_LINK_FREQ };
++
++static const char * const s5k3l6xx_test_pattern_menu[] = {
++	"Disabled", "Solid Color", "100% Color Bars", "Fade to Grey",
++	"PN9", "White", "LFSR32", "Address",
++};
++
++struct s5k3l6xx {
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++	struct clk *clk;
++	struct regmap *regmap;
++	struct gpio_desc *reset_gpio;
++	struct regulator_bulk_data supplies[S5K3L6XX_NUM_SUPPLIES];
++	u32 mclk_freq;
++
++	struct v4l2_ctrl_handler ctrls;
++	struct v4l2_ctrl *exposure;
++	struct v4l2_ctrl *vblank;
++	struct v4l2_ctrl *hblank;
++
++	struct mutex lock;	/* serialise power/stream state and mode */
++	const struct s5k3l6xx_mode *mode;
++	bool streaming;
++};
++
++static inline struct s5k3l6xx *to_s5k3l6xx(struct v4l2_subdev *sd)
++{
++	return container_of(sd, struct s5k3l6xx, sd);
++}
++
++static int s5k3l6xx_power_on(struct device *dev)
++{
++	struct s5k3l6xx *s = to_s5k3l6xx(dev_get_drvdata(dev));
++	int ret;
++
++	ret = regulator_bulk_enable(S5K3L6XX_NUM_SUPPLIES, s->supplies);
++	if (ret)
++		return ret;
++	usleep_range(10, 20);
++
++	ret = clk_set_rate(s->clk, s->mclk_freq);
++	if (ret)
++		goto err_reg;
++	ret = clk_prepare_enable(s->clk);
++	if (ret)
++		goto err_reg;
++
++	/*
++	 * Release reset, then pulse it once more: undocumented, but makes
++	 * power-on reliable on this board.
++	 */
++	gpiod_set_value_cansleep(s->reset_gpio, 0);
++	usleep_range(1400, 2000);
++	gpiod_set_value_cansleep(s->reset_gpio, 1);
++	usleep_range(400, 800);
++	gpiod_set_value_cansleep(s->reset_gpio, 0);
++	usleep_range(10000, 11000);
++	return 0;
++
++err_reg:
++	regulator_bulk_disable(S5K3L6XX_NUM_SUPPLIES, s->supplies);
++	return ret;
++}
++
++static int s5k3l6xx_power_off(struct device *dev)
++{
++	struct s5k3l6xx *s = to_s5k3l6xx(dev_get_drvdata(dev));
++
++	usleep_range(20, 40);
++	gpiod_set_value_cansleep(s->reset_gpio, 1);
++	clk_disable_unprepare(s->clk);
++	regulator_bulk_disable(S5K3L6XX_NUM_SUPPLIES, s->supplies);
++	return 0;
++}
++
++static int s5k3l6xx_start(struct s5k3l6xx *s)
++{
++	int ret = 0;
++
++	cci_multi_reg_write(s->regmap, s5k3l6xx_vendor_init,
++			    ARRAY_SIZE(s5k3l6xx_vendor_init), &ret);
++	cci_multi_reg_write(s->regmap, s5k3l6xx_vendor_4000x3000,
++			    ARRAY_SIZE(s5k3l6xx_vendor_4000x3000), &ret);
++	if (s->mode->regs)
++		cci_multi_reg_write(s->regmap, s->mode->regs, s->mode->num_regs,
++				    &ret);
++	cci_multi_reg_write(s->regmap, s5k3l6xx_fmt,
++			    ARRAY_SIZE(s5k3l6xx_fmt), &ret);
++	if (ret)
++		return ret;
++	ret = v4l2_ctrl_handler_setup(&s->ctrls);
++	if (ret)
++		return ret;
++	/* stream on: blank PLL, select streaming, unblank PLL */
++	cci_write(s->regmap, S5K3L6XX_REG_PLL_PD, 0x01, &ret);
++	cci_write(s->regmap, S5K3L6XX_REG_MODE_SELECT, 1, &ret);
++	cci_write(s->regmap, S5K3L6XX_REG_PLL_PD, 0x00, &ret);
++	return ret;
++}
++
++static int s5k3l6xx_s_stream(struct v4l2_subdev *sd, int enable)
++{
++	struct s5k3l6xx *s = to_s5k3l6xx(sd);
++	struct i2c_client *c = v4l2_get_subdevdata(sd);
++	int ret = 0;
++
++	mutex_lock(&s->lock);
++	if (s->streaming == !!enable)
++		goto out;
++
++	if (enable) {
++		ret = pm_runtime_resume_and_get(&c->dev);
++		if (ret < 0)
++			goto out;
++		ret = s5k3l6xx_start(s);
++		if (ret) {
++			pm_runtime_put(&c->dev);
++			goto out;
++		}
++	} else {
++		cci_write(s->regmap, S5K3L6XX_REG_MODE_SELECT, 0, NULL);
++		pm_runtime_put(&c->dev);
++	}
++	s->streaming = enable;
++out:
++	mutex_unlock(&s->lock);
++	return ret;
++}
++
++static int s5k3l6xx_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct s5k3l6xx *s = container_of(ctrl->handler, struct s5k3l6xx, ctrls);
++	struct i2c_client *c = v4l2_get_subdevdata(&s->sd);
++	int ret;
++
++	if (ctrl->id == V4L2_CID_VBLANK)
++		__v4l2_ctrl_modify_range(s->exposure, S5K3L6XX_EXPOSURE_MIN,
++					 s->mode->height + ctrl->val -
++					 S5K3L6XX_EXPOSURE_MARGIN, 1,
++					 S5K3L6XX_EXPOSURE_DEF);
++
++	if (!pm_runtime_get_if_in_use(&c->dev))
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_EXPOSURE:
++		ret = cci_write(s->regmap, S5K3L6XX_REG_EXPOSURE, ctrl->val, NULL);
++		break;
++	case V4L2_CID_ANALOGUE_GAIN:
++		ret = cci_write(s->regmap, S5K3L6XX_REG_ANALOG_GAIN, ctrl->val, NULL);
++		break;
++	case V4L2_CID_VBLANK:
++		ret = cci_write(s->regmap, S5K3L6XX_REG_FLL,
++				s->mode->height + ctrl->val, NULL);
++		break;
++	case V4L2_CID_HBLANK:
++		ret = cci_write(s->regmap, S5K3L6XX_REG_LLP,
++				s->mode->width + ctrl->val, NULL);
++		break;
++	case V4L2_CID_TEST_PATTERN:
++		ret = cci_write(s->regmap, S5K3L6XX_REG_TEST_PATTERN, ctrl->val, NULL);
++		break;
++	default:
++		ret = -EINVAL;
++	}
++
++	pm_runtime_put(&c->dev);
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops s5k3l6xx_ctrl_ops = {
++	.s_ctrl = s5k3l6xx_set_ctrl,
++};
++
++static void s5k3l6xx_fill_fmt(const struct s5k3l6xx_mode *mode,
++			      struct v4l2_mbus_framefmt *f)
++{
++	f->width = mode->width;
++	f->height = mode->height;
++	f->code = MEDIA_BUS_FMT_SGRBG10_1X10;
++	f->field = V4L2_FIELD_NONE;
++	f->colorspace = V4L2_COLORSPACE_RAW;
++}
++
++static int s5k3l6xx_get_fmt(struct v4l2_subdev *sd,
++			    struct v4l2_subdev_state *state,
++			    struct v4l2_subdev_format *fmt)
++{
++	struct s5k3l6xx *s = to_s5k3l6xx(sd);
++
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		fmt->format = *v4l2_subdev_state_get_format(state, 0);
++		return 0;
++	}
++	mutex_lock(&s->lock);
++	s5k3l6xx_fill_fmt(s->mode, &fmt->format);
++	mutex_unlock(&s->lock);
++	return 0;
++}
++
++static int s5k3l6xx_set_fmt(struct v4l2_subdev *sd,
++			    struct v4l2_subdev_state *state,
++			    struct v4l2_subdev_format *fmt)
++{
++	struct s5k3l6xx *s = to_s5k3l6xx(sd);
++	const struct s5k3l6xx_mode *mode;
++	int ret = 0;
++
++	mode = v4l2_find_nearest_size(s5k3l6xx_modes, ARRAY_SIZE(s5k3l6xx_modes),
++				      width, height, fmt->format.width,
++				      fmt->format.height);
++	s5k3l6xx_fill_fmt(mode, &fmt->format);
++
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		*v4l2_subdev_state_get_format(state, 0) = fmt->format;
++		return 0;
++	}
++
++	mutex_lock(&s->lock);
++	if (s->mode == mode)
++		goto out;
++	if (s->streaming) {
++		ret = -EBUSY;
++		goto out;
++	}
++	s->mode = mode;
++	ret = v4l2_ctrl_modify_range(s->hblank, S5K3L6XX_LLP - mode->width,
++				     S5K3L6XX_LLP - mode->width, 1,
++				     S5K3L6XX_LLP - mode->width);
++	if (!ret)
++		ret = v4l2_ctrl_modify_range(s->vblank,
++					     mode->fll_min - mode->height,
++					     S5K3L6XX_FLL_MAX - mode->height, 1,
++					     mode->fll_def - mode->height);
++	if (!ret)
++		ret = v4l2_ctrl_s_ctrl(s->vblank, mode->fll_def - mode->height);
++out:
++	mutex_unlock(&s->lock);
++	return ret;
++}
++
++static int s5k3l6xx_get_selection(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *state,
++				  struct v4l2_subdev_selection *sel)
++{
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r = s5k3l6xx_crop;
++		return 0;
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++		sel->r.left = 0;
++		sel->r.top = 0;
++		sel->r.width = S5K3L6XX_NATIVE_WIDTH;
++		sel->r.height = S5K3L6XX_NATIVE_HEIGHT;
++		return 0;
++	}
++	return -EINVAL;
++}
++
++static int s5k3l6xx_enum_mbus_code(struct v4l2_subdev *sd,
++				   struct v4l2_subdev_state *state,
++				   struct v4l2_subdev_mbus_code_enum *code)
++{
++	if (code->index)
++		return -EINVAL;
++	code->code = MEDIA_BUS_FMT_SGRBG10_1X10;
++	return 0;
++}
++
++static int s5k3l6xx_enum_frame_size(struct v4l2_subdev *sd,
++				    struct v4l2_subdev_state *state,
++				    struct v4l2_subdev_frame_size_enum *fse)
++{
++	if (fse->index >= ARRAY_SIZE(s5k3l6xx_modes) ||
++	    fse->code != MEDIA_BUS_FMT_SGRBG10_1X10)
++		return -EINVAL;
++	fse->min_width = fse->max_width = s5k3l6xx_modes[fse->index].width;
++	fse->min_height = fse->max_height = s5k3l6xx_modes[fse->index].height;
++	return 0;
++}
++
++static int s5k3l6xx_init_state(struct v4l2_subdev *sd,
++			       struct v4l2_subdev_state *state)
++{
++	s5k3l6xx_fill_fmt(&s5k3l6xx_modes[0],
++			  v4l2_subdev_state_get_format(state, 0));
++	return 0;
++}
++
++static const struct v4l2_subdev_video_ops s5k3l6xx_video_ops = {
++	.s_stream = s5k3l6xx_s_stream,
++};
++
++static const struct v4l2_subdev_pad_ops s5k3l6xx_pad_ops = {
++	.enum_mbus_code = s5k3l6xx_enum_mbus_code,
++	.enum_frame_size = s5k3l6xx_enum_frame_size,
++	.get_fmt = s5k3l6xx_get_fmt,
++	.set_fmt = s5k3l6xx_set_fmt,
++	.get_selection = s5k3l6xx_get_selection,
++};
++
++static const struct v4l2_subdev_ops s5k3l6xx_subdev_ops = {
++	.video = &s5k3l6xx_video_ops,
++	.pad = &s5k3l6xx_pad_ops,
++};
++
++static const struct v4l2_subdev_internal_ops s5k3l6xx_internal_ops = {
++	.init_state = s5k3l6xx_init_state,
++};
++
++static int s5k3l6xx_init_ctrls(struct s5k3l6xx *s)
++{
++	struct v4l2_ctrl_handler *h = &s->ctrls;
++	struct i2c_client *c = v4l2_get_subdevdata(&s->sd);
++	struct v4l2_fwnode_device_properties props;
++	struct v4l2_ctrl *ctrl;
++	int ret;
++
++	v4l2_ctrl_handler_init(h, 10);
++
++	ctrl = v4l2_ctrl_new_int_menu(h, NULL, V4L2_CID_LINK_FREQ, 0, 0,
++				      s5k3l6xx_link_freq_menu);
++	if (ctrl)
++		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	ctrl = v4l2_ctrl_new_std(h, NULL, V4L2_CID_PIXEL_RATE,
++				 S5K3L6XX_PIXEL_RATE, S5K3L6XX_PIXEL_RATE, 1,
++				 S5K3L6XX_PIXEL_RATE);
++	if (ctrl)
++		ctrl->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	s->exposure = v4l2_ctrl_new_std(h, &s5k3l6xx_ctrl_ops, V4L2_CID_EXPOSURE,
++					S5K3L6XX_EXPOSURE_MIN,
++					s->mode->fll_def - S5K3L6XX_EXPOSURE_MARGIN,
++					1, S5K3L6XX_EXPOSURE_DEF);
++	v4l2_ctrl_new_std(h, &s5k3l6xx_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
++			  S5K3L6XX_AGAIN_MIN, S5K3L6XX_AGAIN_MAX, 1,
++			  S5K3L6XX_AGAIN_MIN);
++	s->vblank = v4l2_ctrl_new_std(h, &s5k3l6xx_ctrl_ops, V4L2_CID_VBLANK,
++				      s->mode->fll_min - s->mode->height,
++				      S5K3L6XX_FLL_MAX - s->mode->height, 1,
++				      s->mode->fll_def - s->mode->height);
++	s->hblank = v4l2_ctrl_new_std(h, &s5k3l6xx_ctrl_ops, V4L2_CID_HBLANK,
++				      S5K3L6XX_LLP - s->mode->width,
++				      S5K3L6XX_LLP - s->mode->width, 1,
++				      S5K3L6XX_LLP - s->mode->width);
++	if (s->hblank)
++		s->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	v4l2_ctrl_new_std_menu_items(h, &s5k3l6xx_ctrl_ops, V4L2_CID_TEST_PATTERN,
++				     ARRAY_SIZE(s5k3l6xx_test_pattern_menu) - 1,
++				     0, 0, s5k3l6xx_test_pattern_menu);
++
++	ret = v4l2_fwnode_device_parse(&c->dev, &props);
++	if (!ret)
++		ret = v4l2_ctrl_new_fwnode_properties(h, &s5k3l6xx_ctrl_ops, &props);
++
++	if (h->error) {
++		ret = h->error;
++		v4l2_ctrl_handler_free(h);
++		return ret;
++	}
++	s->sd.ctrl_handler = h;
++	return ret;
++}
++
++static int s5k3l6xx_parse_dt(struct s5k3l6xx *s, struct device *dev)
++{
++	struct v4l2_fwnode_endpoint ep = { .bus_type = V4L2_MBUS_CSI2_DPHY };
++	struct fwnode_handle *fh;
++	int ret;
++
++	s->clk = devm_clk_get(dev, "mclk");
++	if (IS_ERR(s->clk))
++		return dev_err_probe(dev, PTR_ERR(s->clk), "no mclk\n");
++
++	if (of_property_read_u32(dev->of_node, "clock-frequency", &s->mclk_freq))
++		s->mclk_freq = S5K3L6XX_DEFAULT_MCLK;
++	if (s->mclk_freq < 6000000 || s->mclk_freq > 32000000)
++		return dev_err_probe(dev, -EINVAL, "mclk %u out of range\n",
++				     s->mclk_freq);
++
++	s->reset_gpio = devm_gpiod_get(dev, "rstn", GPIOD_OUT_LOW);
++	if (IS_ERR(s->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(s->reset_gpio), "no reset gpio\n");
++
++	fh = fwnode_graph_get_next_endpoint(dev_fwnode(dev), NULL);
++	if (!fh)
++		return dev_err_probe(dev, -EINVAL, "no endpoint\n");
++	ret = v4l2_fwnode_endpoint_parse(fh, &ep);
++	fwnode_handle_put(fh);
++	if (ret)
++		return dev_err_probe(dev, ret, "endpoint parse failed\n");
++	if (ep.bus.mipi_csi2.num_data_lanes != 4)
++		return dev_err_probe(dev, -EINVAL, "4 data lanes required\n");
++	return 0;
++}
++
++static int s5k3l6xx_probe(struct i2c_client *c)
++{
++	struct device *dev = &c->dev;
++	struct s5k3l6xx *s;
++	u64 id;
++	unsigned int i;
++	int ret;
++
++	s = devm_kzalloc(dev, sizeof(*s), GFP_KERNEL);
++	if (!s)
++		return -ENOMEM;
++
++	mutex_init(&s->lock);
++	s->mode = &s5k3l6xx_modes[0];
++	v4l2_i2c_subdev_init(&s->sd, c, &s5k3l6xx_subdev_ops);
++	s->sd.internal_ops = &s5k3l6xx_internal_ops;
++
++	s->regmap = devm_cci_regmap_init_i2c(c, 16);
++	if (IS_ERR(s->regmap))
++		return dev_err_probe(dev, PTR_ERR(s->regmap), "regmap init\n");
++
++	ret = s5k3l6xx_parse_dt(s, dev);
++	if (ret)
++		return ret;
++
++	for (i = 0; i < S5K3L6XX_NUM_SUPPLIES; i++)
++		s->supplies[i].supply = s5k3l6xx_supply_names[i];
++	ret = devm_regulator_bulk_get(dev, S5K3L6XX_NUM_SUPPLIES, s->supplies);
++	if (ret)
++		return dev_err_probe(dev, ret, "regulators\n");
++
++	ret = s5k3l6xx_power_on(dev);
++	if (ret)
++		return ret;
++
++	cci_read(s->regmap, S5K3L6XX_REG_CHIP_ID, &id, &ret);
++	if (ret || id != S5K3L6XX_CHIP_ID) {
++		dev_err(dev, "chip id 0x%04llx (expected 0x%04x) ret %d\n",
++			id, S5K3L6XX_CHIP_ID, ret);
++		ret = ret ? ret : -ENODEV;
++		goto err_power;
++	}
++	dev_info(dev, "Samsung S5K3L6XX detected, chip id 0x%04llx\n", id);
++
++	ret = s5k3l6xx_init_ctrls(s);
++	if (ret)
++		goto err_power;
++
++	s->sd.flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
++	s->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++	s->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ret = media_entity_pads_init(&s->sd.entity, 1, &s->pad);
++	if (ret)
++		goto err_ctrl;
++
++	pm_runtime_set_active(dev);
++	pm_runtime_enable(dev);
++	pm_runtime_idle(dev);
++
++	ret = v4l2_async_register_subdev_sensor(&s->sd);
++	if (ret)
++		goto err_pm;
++
++	return 0;
++
++err_pm:
++	pm_runtime_disable(dev);
++	pm_runtime_set_suspended(dev);
++	media_entity_cleanup(&s->sd.entity);
++err_ctrl:
++	v4l2_ctrl_handler_free(&s->ctrls);
++err_power:
++	s5k3l6xx_power_off(dev);
++	return ret;
++}
++
++static void s5k3l6xx_remove(struct i2c_client *c)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(c);
++	struct s5k3l6xx *s = to_s5k3l6xx(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	media_entity_cleanup(&sd->entity);
++	v4l2_ctrl_handler_free(&s->ctrls);
++	pm_runtime_disable(&c->dev);
++	if (!pm_runtime_status_suspended(&c->dev))
++		s5k3l6xx_power_off(&c->dev);
++	pm_runtime_set_suspended(&c->dev);
++}
++
++static const struct dev_pm_ops s5k3l6xx_pm_ops = {
++	SET_RUNTIME_PM_OPS(s5k3l6xx_power_off, s5k3l6xx_power_on, NULL)
++};
++
++static const struct of_device_id s5k3l6xx_of_match[] = {
++	{ .compatible = "samsung,s5k3l6xx" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, s5k3l6xx_of_match);
++
++static struct i2c_driver s5k3l6xx_i2c_driver = {
++	.driver = {
++		.name = "s5k3l6xx",
++		.of_match_table = s5k3l6xx_of_match,
++		.pm = &s5k3l6xx_pm_ops,
++	},
++	.probe = s5k3l6xx_probe,
++	.remove = s5k3l6xx_remove,
++};
++module_i2c_driver(s5k3l6xx_i2c_driver);
++
++MODULE_DESCRIPTION("Samsung S5K3L6XX sensor driver");
++MODULE_AUTHOR("Martin Kepplinger <martin.kepplinger@puri.sm>");
++MODULE_AUTHOR("Dorota Czaplejewicz <dorota.czaplejewicz@puri.sm>");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

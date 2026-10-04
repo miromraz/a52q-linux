@@ -1,0 +1,863 @@
+# checkpatch.pl --strict (input-fts5cu56a)
+-------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/input-fts5cu56a/v1-0001-dt-bindings-input-touchscreen-add-ST-FTS5CU56A.patch
+-------------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#19: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 60 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/input-fts5cu56a/v1-0001-dt-bindings-input-touchscreen-add-ST-FTS5CU56A.patch has style problems, please review.
+----------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/input-fts5cu56a/v1-0002-Input-add-STMicroelectronics-FTS5CU56A-touchscree.patch
+----------------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#58: 
+new file mode 100644
+
+CHECK: Please don't use multiple blank lines
+#108: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:46:
++
++
+
+CHECK: Please don't use multiple blank lines
+#246: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:184:
++
++
+
+CHECK: struct mutex definition without comment
+#255: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:193:
++	struct mutex mutex;
+
+WARNING: Block comments should align the * on each line
+#274: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:212:
++/************************************************************
++*  720  * 1480 : <48 96 60> indicator: 24dp navigator:48dp edge:60px dpi=320
+
+CHECK: Avoid CamelCase: <regAdd>
+#305: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:243:
++	u8 regAdd;
+
+CHECK: Avoid CamelCase: <EventNum>
+#307: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:245:
++	int EventNum = 0;
+
+CHECK: Avoid CamelCase: <TouchID>
+#308: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:246:
++	u8 TouchID = 0, event_id = 0;
+
+CHECK: Alignment should match open parenthesis
+#320: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:258:
++	i2c_smbus_read_i2c_block_data(sdata->client, regAdd,
++					    FTS_EVENT_SIZE, (u8 *)&data[0 * FTS_EVENT_SIZE]);
+
+WARNING: line length of 114 exceeds 100 columns
+#329: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:267:
++					    FTS_EVENT_SIZE * (left_event_count), (u8 *)&data[1 * FTS_EVENT_SIZE]);
+
+CHECK: Alignment should match open parenthesis
+#329: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:267:
++		i2c_smbus_read_i2c_block_data(sdata->client, regAdd,
++					    FTS_EVENT_SIZE * (left_event_count), (u8 *)&data[1 * FTS_EVENT_SIZE]);
+
+WARNING: line length of 111 exceeds 100 columns
+#335: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:273:
++				EventNum, data[EventNum * FTS_EVENT_SIZE+0], data[EventNum * FTS_EVENT_SIZE+1],
+
+CHECK: Alignment should match open parenthesis
+#335: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:273:
++		dev_dbg(&sdata->client->dev, "[%d] %02X %02X %02X %02X %02X %02X %02X %02X\n",
++				EventNum, data[EventNum * FTS_EVENT_SIZE+0], data[EventNum * FTS_EVENT_SIZE+1],
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#335: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:273:
++				EventNum, data[EventNum * FTS_EVENT_SIZE+0], data[EventNum * FTS_EVENT_SIZE+1],
+ 				                                        ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#335: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:273:
++				EventNum, data[EventNum * FTS_EVENT_SIZE+0], data[EventNum * FTS_EVENT_SIZE+1],
+ 				                                                                           ^
+
+WARNING: line length of 101 exceeds 100 columns
+#336: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:274:
++				data[EventNum * FTS_EVENT_SIZE+2], data[EventNum * FTS_EVENT_SIZE+3],
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#336: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:274:
++				data[EventNum * FTS_EVENT_SIZE+2], data[EventNum * FTS_EVENT_SIZE+3],
+ 				                              ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#336: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:274:
++				data[EventNum * FTS_EVENT_SIZE+2], data[EventNum * FTS_EVENT_SIZE+3],
+ 				                                                                 ^
+
+WARNING: line length of 101 exceeds 100 columns
+#337: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:275:
++				data[EventNum * FTS_EVENT_SIZE+4], data[EventNum * FTS_EVENT_SIZE+5],
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#337: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:275:
++				data[EventNum * FTS_EVENT_SIZE+4], data[EventNum * FTS_EVENT_SIZE+5],
+ 				                              ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#337: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:275:
++				data[EventNum * FTS_EVENT_SIZE+4], data[EventNum * FTS_EVENT_SIZE+5],
+ 				                                                                 ^
+
+WARNING: line length of 102 exceeds 100 columns
+#338: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:276:
++				data[EventNum * FTS_EVENT_SIZE+6], data[EventNum * FTS_EVENT_SIZE+7]);
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#338: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:276:
++				data[EventNum * FTS_EVENT_SIZE+6], data[EventNum * FTS_EVENT_SIZE+7]);
+ 				                              ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#338: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:276:
++				data[EventNum * FTS_EVENT_SIZE+6], data[EventNum * FTS_EVENT_SIZE+7]);
+ 				                                                                 ^
+
+CHECK: No space is necessary after a cast
+#340: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:278:
++		event_buff = (u8 *) &data[EventNum * FTS_EVENT_SIZE];
+
+WARNING: line length of 102 exceeds 100 columns
+#349: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:287:
++						__func__, event_buff[0], event_buff[1], event_buff[2],
+
+CHECK: Alignment should match open parenthesis
+#349: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:287:
++				dev_dbg(&sdata->client->dev, "%s: STATUS %02X %02X %02X %02X %02X %02X %02X %02X\n",
++						__func__, event_buff[0], event_buff[1], event_buff[2],
+
+CHECK: Unnecessary parentheses around 'p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR'
+#353: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:291:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR) &&
++					(p_event_status->status_id == FTS_ERR_EVENT_QUEUE_FULL)) {
+
+CHECK: Unnecessary parentheses around 'p_event_status->status_id == FTS_ERR_EVENT_QUEUE_FULL'
+#353: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:291:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR) &&
++					(p_event_status->status_id == FTS_ERR_EVENT_QUEUE_FULL)) {
+
+CHECK: Alignment should match open parenthesis
+#354: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:292:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR) &&
++					(p_event_status->status_id == FTS_ERR_EVENT_QUEUE_FULL)) {
+
+WARNING: line length of 103 exceeds 100 columns
+#355: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:293:
++				dev_dbg(&sdata->client->dev, "%s: IC Event Queue is full\n", __func__);
+
+CHECK: Unnecessary parentheses around 'p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR'
+#358: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:296:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR) &&
++					(p_event_status->status_id == FTS_ERR_EVENT_ESD)) {
+
+CHECK: Unnecessary parentheses around 'p_event_status->status_id == FTS_ERR_EVENT_ESD'
+#358: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:296:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR) &&
++					(p_event_status->status_id == FTS_ERR_EVENT_ESD)) {
+
+CHECK: Alignment should match open parenthesis
+#359: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:297:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR) &&
++					(p_event_status->status_id == FTS_ERR_EVENT_ESD)) {
+
+WARNING: line length of 104 exceeds 100 columns
+#360: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:298:
++				dev_dbg(&sdata->client->dev, "%s: ESD detected. run reset\n", __func__);
+
+CHECK: Unnecessary parentheses around 'p_event_status->stype == FTS_EVENT_STATUSTYPE_INFORMATION'
+#363: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:301:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_INFORMATION) &&
++					(p_event_status->status_id == FTS_INFO_READY_STATUS)) {
+
+CHECK: Unnecessary parentheses around 'p_event_status->status_id == FTS_INFO_READY_STATUS'
+#363: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:301:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_INFORMATION) &&
++					(p_event_status->status_id == FTS_INFO_READY_STATUS)) {
+
+CHECK: Alignment should match open parenthesis
+#364: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:302:
++			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_INFORMATION) &&
++					(p_event_status->status_id == FTS_INFO_READY_STATUS)) {
+
+WARNING: braces {} are not necessary for single statement blocks
+#365: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:303:
++				if (p_event_status->status_data_1 == 0x10) {
++					dev_dbg(&sdata->client->dev, "%s: IC Reset\n", __func__);
++				}
+
+CHECK: No space is necessary after a cast
+#372: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:310:
++			p_event_coord = (struct fts_event_coordinate *) event_buff;
+
+CHECK: Alignment should match open parenthesis
+#377: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:315:
++				dev_dbg(&sdata->client->dev,
++						"%s: tid(%d) is out of supported max finger number\n",
+
+WARNING: line length of 105 exceeds 100 columns
+#386: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:324:
++			sdata->finger[TouchID].x = (p_event_coord->x_11_4 << 4) | (p_event_coord->x_3_0);
+
+WARNING: line length of 105 exceeds 100 columns
+#387: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:325:
++			sdata->finger[TouchID].y = (p_event_coord->y_11_4 << 4) | (p_event_coord->y_3_0);
+
+CHECK: Alignment should match open parenthesis
+#400: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:338:
++			if (!sdata->finger[TouchID].palm &&
++					sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)
+
+WARNING: line length of 113 exceeds 100 columns
+#403: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:341:
++			sdata->finger[TouchID].palm = (sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM);
+
+WARNING: line length of 132 exceeds 100 columns
+#407: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:345:
++			sdata->finger[TouchID].max_strength = max(sdata->finger[TouchID].max_strength, p_event_coord->max_strength);
+
+WARNING: line length of 136 exceeds 100 columns
+#408: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:346:
++			sdata->finger[TouchID].hover_id_num = max(sdata->finger[TouchID].hover_id_num, (u8)p_event_coord->hover_id_num);
+
+WARNING: max() should probably be max_t(u8, sdata->finger[TouchID].hover_id_num, p_event_coord->hover_id_num)
+#408: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:346:
++			sdata->finger[TouchID].hover_id_num = max(sdata->finger[TouchID].hover_id_num, (u8)p_event_coord->hover_id_num);
+
+CHECK: Unnecessary parentheses around 'sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_NORMAL'
+#413: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:351:
++			if ((sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)   ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_WET)    ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+CHECK: Unnecessary parentheses around 'sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM'
+#413: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:351:
++			if ((sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)   ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_WET)    ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+CHECK: Unnecessary parentheses around 'sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_WET'
+#413: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:351:
++			if ((sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)   ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_WET)    ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+CHECK: Unnecessary parentheses around 'sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_GLOVE'
+#413: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:351:
++			if ((sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)   ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_WET)    ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+WARNING: line length of 103 exceeds 100 columns
+#414: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:352:
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)   ||
+
+CHECK: Alignment should match open parenthesis
+#414: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:352:
++			if ((sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)   ||
+
+WARNING: line length of 103 exceeds 100 columns
+#415: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:353:
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_WET)    ||
+
+WARNING: line length of 102 exceeds 100 columns
+#416: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:354:
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+CHECK: Blank lines aren't necessary after an open brace '{'
+#417: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:355:
++					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
++
+
+WARNING: line length of 110 exceeds 100 columns
+#418: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:356:
++				location_detect(location, sdata->finger[TouchID].x, sdata->finger[TouchID].y);
+
+WARNING: line length of 101 exceeds 100 columns
+#420: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:358:
++				if (sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_RELEASE) {
+
+WARNING: line length of 101 exceeds 100 columns
+#424: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:362:
++						input_report_abs(sdata->input, ABS_MT_PRESSURE, 0);*/
+
+WARNING: Block comments use * on subsequent lines
+#424: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:362:
++					/*if (sdata->board->support_mt_pressure)
++						input_report_abs(sdata->input, ABS_MT_PRESSURE, 0);*/
+
+WARNING: Block comments use a trailing */ on a separate line
+#424: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:362:
++						input_report_abs(sdata->input, ABS_MT_PRESSURE, 0);*/
+
+CHECK: Alignment should match open parenthesis
+#440: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:378:
++					dev_dbg(&sdata->client->dev,
++							"[R] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d mx:%d my:%d p:%d nlvl:%d maxS:%d hid:%d\n",
+
+WARNING: line length of 110 exceeds 100 columns
+#442: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:380:
++							sdata->finger[TouchID].x - sdata->finger[TouchID].p_x,
+
+WARNING: line length of 110 exceeds 100 columns
+#443: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:381:
++							sdata->finger[TouchID].y - sdata->finger[TouchID].p_y,
+
+WARNING: line length of 106 exceeds 100 columns
+#444: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:382:
++							sdata->finger[TouchID].mcount, sdata->touch_count,
+
+WARNING: line length of 107 exceeds 100 columns
+#445: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:383:
++							sdata->finger[TouchID].x, sdata->finger[TouchID].y,
+
+WARNING: line length of 129 exceeds 100 columns
+#446: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:384:
++							sdata->finger[TouchID].max_energy_x, sdata->finger[TouchID].max_energy_y,
+
+WARNING: line length of 126 exceeds 100 columns
+#447: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:385:
++							sdata->finger[TouchID].palm_count, sdata->finger[TouchID].noise_level,
+
+WARNING: line length of 130 exceeds 100 columns
+#448: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:386:
++							sdata->finger[TouchID].max_strength, sdata->finger[TouchID].hover_id_num);
+
+WARNING: line length of 106 exceeds 100 columns
+#457: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:395:
++				} else if (sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_PRESS) {
+
+CHECK: Blank lines aren't necessary after an open brace '{'
+#458: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:396:
++				} else if (sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_PRESS) {
++
+
+WARNING: line length of 116 exceeds 100 columns
+#470: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:408:
++					input_report_abs(sdata->input, ABS_MT_POSITION_X, sdata->finger[TouchID].x);
+
+WARNING: line length of 116 exceeds 100 columns
+#471: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:409:
++					input_report_abs(sdata->input, ABS_MT_POSITION_Y, sdata->finger[TouchID].y);
+
+CHECK: Alignment should match open parenthesis
+#473: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:411:
++					input_report_abs(sdata->input, ABS_MT_TOUCH_MAJOR,
++								sdata->finger[TouchID].major);
+
+CHECK: Alignment should match open parenthesis
+#475: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:413:
++					input_report_abs(sdata->input, ABS_MT_TOUCH_MINOR,
++								sdata->finger[TouchID].minor);
+
+WARNING: Block comments use * on subsequent lines
+#478: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:416:
++					/*if (sdata->brush_mode)
++						input_report_abs(sdata->input, ABS_MT_CUSTOM,
+
+WARNING: line length of 115 exceeds 100 columns
+#479: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:417:
++									(sdata->finger[TouchID].max_energy << 16) |
+
+WARNING: line length of 105 exceeds 100 columns
+#480: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:418:
++									(sdata->finger[TouchID].z << 1) |
+
+WARNING: line length of 101 exceeds 100 columns
+#481: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:419:
++									sdata->finger[TouchID].palm);
+
+WARNING: line length of 115 exceeds 100 columns
+#484: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:422:
++									(sdata->finger[TouchID].max_energy << 16) |
+
+WARNING: line length of 103 exceeds 100 columns
+#486: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:424:
++									sdata->finger[TouchID].palm);*/
+
+WARNING: Block comments use a trailing */ on a separate line
+#486: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:424:
++									sdata->finger[TouchID].palm);*/
+
+WARNING: Block comments use * on subsequent lines
+#489: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:427:
++					/*if (sdata->board->support_mt_pressure)
++						input_report_abs(sdata->input, ABS_MT_PRESSURE,
+
+WARNING: Block comments use a trailing */ on a separate line
+#490: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:428:
++									sdata->finger[TouchID].z);*/
+
+CHECK: Unnecessary parentheses around 'sdata->touch_count > 4'
+#492: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:430:
++					if ((sdata->touch_count > 4) && (sdata->check_multi == 0)) {
+
+CHECK: Unnecessary parentheses around 'sdata->check_multi == 0'
+#492: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:430:
++					if ((sdata->touch_count > 4) && (sdata->check_multi == 0)) {
+
+CHECK: Alignment should match open parenthesis
+#498: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:436:
++					dev_dbg(&sdata->client->dev,
++							"[P] tID:%d.%d x:%d y:%d z:%d major:%d minor:%d loc:%s tc:%d type:%d p:%d nlvl:%d maxS:%d hid:%d\n",
+
+WARNING: line length of 107 exceeds 100 columns
+#499: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:437:
++							TouchID, (sdata->input->mt->trkid - 1) & TRKID_MAX,
+
+WARNING: line length of 107 exceeds 100 columns
+#500: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:438:
++							sdata->finger[TouchID].x, sdata->finger[TouchID].y,
+
+WARNING: line length of 115 exceeds 100 columns
+#502: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:440:
++							sdata->finger[TouchID].major, sdata->finger[TouchID].minor,
+
+WARNING: line length of 115 exceeds 100 columns
+#503: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:441:
++							location, sdata->touch_count, sdata->finger[TouchID].ttype,
+
+WARNING: line length of 126 exceeds 100 columns
+#504: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:442:
++							sdata->finger[TouchID].palm_count, sdata->finger[TouchID].noise_level,
+
+WARNING: line length of 130 exceeds 100 columns
+#505: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:443:
++							sdata->finger[TouchID].max_strength, sdata->finger[TouchID].hover_id_num);
+
+WARNING: line length of 105 exceeds 100 columns
+#507: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:445:
++				} else if (sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_MOVE) {
+
+WARNING: line length of 110 exceeds 100 columns
+#509: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:447:
++						dev_dbg(&sdata->client->dev, "%s: touch count 0\n", __func__);
+
+CHECK: Alignment should match open parenthesis
+#515: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:453:
++						dev_dbg(&sdata->client->dev,
++								"%s: previous state is released but point is moved\n",
+
+WARNING: line length of 116 exceeds 100 columns
+#525: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:463:
++					input_report_abs(sdata->input, ABS_MT_POSITION_X, sdata->finger[TouchID].x);
+
+WARNING: line length of 116 exceeds 100 columns
+#526: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:464:
++					input_report_abs(sdata->input, ABS_MT_POSITION_Y, sdata->finger[TouchID].y);
+
+CHECK: Alignment should match open parenthesis
+#528: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:466:
++					input_report_abs(sdata->input, ABS_MT_TOUCH_MAJOR,
++								sdata->finger[TouchID].major);
+
+CHECK: Alignment should match open parenthesis
+#530: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:468:
++					input_report_abs(sdata->input, ABS_MT_TOUCH_MINOR,
++								sdata->finger[TouchID].minor);
+
+WARNING: Block comments use * on subsequent lines
+#533: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:471:
++					/*if (sdata->brush_mode)
++						input_report_abs(sdata->input, ABS_MT_CUSTOM,
+
+WARNING: line length of 115 exceeds 100 columns
+#534: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:472:
++									(sdata->finger[TouchID].max_energy << 16) |
+
+WARNING: line length of 105 exceeds 100 columns
+#535: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:473:
++									(sdata->finger[TouchID].z << 1) |
+
+WARNING: line length of 101 exceeds 100 columns
+#536: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:474:
++									sdata->finger[TouchID].palm);
+
+WARNING: line length of 115 exceeds 100 columns
+#539: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:477:
++									(sdata->finger[TouchID].max_energy << 16) |
+
+WARNING: line length of 103 exceeds 100 columns
+#541: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:479:
++									sdata->finger[TouchID].palm);*/
+
+WARNING: Block comments use a trailing */ on a separate line
+#541: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:479:
++									sdata->finger[TouchID].palm);*/
+
+WARNING: Block comments use * on subsequent lines
+#544: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:482:
++					/*if (sdata->board->support_mt_pressure)
++						input_report_abs(sdata->input, ABS_MT_PRESSURE,
+
+WARNING: Block comments use a trailing */ on a separate line
+#545: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:483:
++									sdata->finger[TouchID].z);*/
+
+CHECK: Alignment should match open parenthesis
+#550: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:488:
++					dev_dbg(&sdata->client->dev,
++							"%s: do not support coordinate action(%d)\n",
+
+CHECK: Please don't use multiple blank lines
+#554: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:492:
++
++
+
+WARNING: line length of 104 exceeds 100 columns
+#555: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:493:
++				if (sdata->finger[TouchID].ttype != sdata->finger[TouchID].prev_ttype) {
+
+CHECK: Alignment should match open parenthesis
+#557: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:495:
++					dev_dbg(&sdata->client->dev, "%s: tID:%d ttype(%c->%c) : %s\n",
++							__func__, sdata->finger[TouchID].id,
+
+WARNING: line length of 103 exceeds 100 columns
+#558: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:496:
++							finger_mode[sdata->finger[TouchID].prev_ttype],
+
+WARNING: line length of 124 exceeds 100 columns
+#560: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:498:
++							sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_PRESS ? "P" :
+
+WARNING: line length of 129 exceeds 100 columns
+#561: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:499:
++							sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_MOVE ? "M" : "R");
+
+CHECK: Alignment should match open parenthesis
+#565: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:503:
++				dev_dbg(&sdata->client->dev,
++						"%s: do not support coordinate type(%d)\n",
+
+WARNING: line length of 118 exceeds 100 columns
+#573: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:511:
++				__func__, p_gesture_status->stype, p_gesture_status->sf, p_gesture_status->gesture_id,
+
+CHECK: Alignment should match open parenthesis
+#580: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:518:
++				dev_dbg(&sdata->client->dev,
++						"%s: echo event %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+
+WARNING: line length of 147 exceeds 100 columns
+#581: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:519:
++						__func__, event_buff[0], event_buff[1], event_buff[2], event_buff[3], event_buff[4], event_buff[5],
+
+WARNING: line length of 139 exceeds 100 columns
+#582: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:520:
++						event_buff[6], event_buff[7], event_buff[8], event_buff[9], event_buff[10], event_buff[11],
+
+WARNING: line length of 112 exceeds 100 columns
+#583: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:521:
++						event_buff[12], event_buff[13], event_buff[14], event_buff[15]);
+
+CHECK: Alignment should match open parenthesis
+#586: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:524:
++				dev_dbg(&sdata->client->dev,
++						"%s: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+
+WARNING: line length of 147 exceeds 100 columns
+#587: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:525:
++						__func__, event_buff[0], event_buff[1], event_buff[2], event_buff[3], event_buff[4], event_buff[5],
+
+WARNING: line length of 139 exceeds 100 columns
+#588: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:526:
++						event_buff[6], event_buff[7], event_buff[8], event_buff[9], event_buff[10], event_buff[11],
+
+WARNING: line length of 112 exceeds 100 columns
+#589: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:527:
++						event_buff[12], event_buff[13], event_buff[14], event_buff[15]);
+
+CHECK: Alignment should match open parenthesis
+#594: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:532:
++			dev_dbg(&sdata->client->dev,
++					"%s: unknown event %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+
+WARNING: line length of 147 exceeds 100 columns
+#595: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:533:
++						__func__, event_buff[0], event_buff[1], event_buff[2], event_buff[3], event_buff[4], event_buff[5],
+
+WARNING: line length of 139 exceeds 100 columns
+#596: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:534:
++						event_buff[6], event_buff[7], event_buff[8], event_buff[9], event_buff[10], event_buff[11],
+
+WARNING: line length of 112 exceeds 100 columns
+#597: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:535:
++						event_buff[12], event_buff[13], event_buff[14], event_buff[15]);
+
+CHECK: Alignment should match open parenthesis
+#625: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:563:
++static ssize_t stmfts_sysfs_chip_id(struct device *dev,
++				struct device_attribute *attr, char *buf)
+
+CHECK: Alignment should match open parenthesis
+#633: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:571:
++static ssize_t stmfts_sysfs_chip_version(struct device *dev,
++				struct device_attribute *attr, char *buf)
+
+CHECK: Alignment should match open parenthesis
+#641: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:579:
++static ssize_t stmfts_sysfs_fw_ver(struct device *dev,
++				struct device_attribute *attr, char *buf)
+
+CHECK: Alignment should match open parenthesis
+#649: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:587:
++static ssize_t stmfts_sysfs_config_id(struct device *dev,
++				struct device_attribute *attr, char *buf)
+
+CHECK: Alignment should match open parenthesis
+#657: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:595:
++static ssize_t stmfts_sysfs_config_version(struct device *dev,
++				struct device_attribute *attr, char *buf)
+
+WARNING: Consider renaming function(s) 'stmfts_sysfs_chip_id' to 'chip_id_show'
+#662: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:600:
++}
+
+WARNING: Consider renaming function(s) 'stmfts_sysfs_chip_version' to 'chip_version_show'
+#665: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:603:
++static DEVICE_ATTR(chip_version, 0444, stmfts_sysfs_chip_version, NULL);
+
+WARNING: Consider renaming function(s) 'stmfts_sysfs_fw_ver' to 'fw_ver_show'
+#666: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:604:
++static DEVICE_ATTR(fw_ver, 0444, stmfts_sysfs_fw_ver, NULL);
+
+WARNING: Consider renaming function(s) 'stmfts_sysfs_config_id' to 'config_id_show'
+#667: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:605:
++static DEVICE_ATTR(config_id, 0444, stmfts_sysfs_config_id, NULL);
+
+WARNING: Consider renaming function(s) 'stmfts_sysfs_config_version' to 'config_version_show'
+#668: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:606:
++static DEVICE_ATTR(config_version, 0444, stmfts_sysfs_config_version, NULL);
+
+CHECK: Avoid CamelCase: <resetCmds>
+#687: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:625:
++	u8 resetCmds[6] = { 0xFA, 0x20, 0x00, 0x00, 0x24, 0x81 };
+
+CHECK: Avoid CamelCase: <touchCmds>
+#689: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:627:
++	u8 touchCmds[3] = { 0x39, 0x61, 0x00 };
+
+CHECK: Avoid CamelCase: <calCmds>
+#690: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:628:
++	u8 calCmds[1] = { FTS_CMD_FORCE_CALIBRATION };
+
+CHECK: Avoid CamelCase: <event_clrCmds>
+#691: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:629:
++	u8 event_clrCmds[1] = { FTS_CMD_CLEAR_ALL_EVENT };
+
+CHECK: Avoid CamelCase: <enScanCmds>
+#692: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:630:
++	u8 enScanCmds[3] = { 0xA0, 0x00, 0x01 };
+
+CHECK: Avoid CamelCase: <disScanCmds>
+#758: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:696:
++	u8 disScanCmds[3] = { 0xA0, 0x00, 0x00 };
+
+CHECK: Alignment should match open parenthesis
+#767: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:705:
++	regulator_bulk_disable(ARRAY_SIZE(sdata->regulators),
++						sdata->regulators);
+
+WARNING: DT compatible string "st,stmfts_fts5cu56a" appears un-documented -- check ./Documentation/devicetree/bindings/
+#888: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:826:
++	{ .compatible = "st,stmfts_fts5cu56a", },
+
+WARNING: Prefer "GPL" over "GPL v2" - see commit bf7fbeeae6db ("module: Cure the MODULE_LICENSE "GPL" vs. "GPL v2" bogosity")
+#915: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:853:
++MODULE_LICENSE("GPL v2");
+
+total: 0 errors, 84 warnings, 66 checks, 877 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/input-fts5cu56a/v1-0002-Input-add-STMicroelectronics-FTS5CU56A-touchscree.patch has style problems, please review.
+-----------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/input-fts5cu56a/v1-0003-Input-stmfts_fts5cu56a-clean-up-coding-style.patch
+-----------------------------------------------------------------------------------------------------------
+CHECK: Alignment should match open parenthesis
+#100: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:254:
++	i2c_smbus_read_i2c_block_data(sdata->client, reg_addr,
+ 					    FTS_EVENT_SIZE, (u8 *)&data[0 * FTS_EVENT_SIZE]);
+
+CHECK: Alignment should match open parenthesis
+#112: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:263:
++		i2c_smbus_read_i2c_block_data(sdata->client, reg_addr,
++					    FTS_EVENT_SIZE * (left_event_count),
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#124: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:271:
++			data[event_num * FTS_EVENT_SIZE+0], data[event_num * FTS_EVENT_SIZE+1],
+ 			                               ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#124: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:271:
++			data[event_num * FTS_EVENT_SIZE+0], data[event_num * FTS_EVENT_SIZE+1],
+ 			                                                                   ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#125: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:272:
++			data[event_num * FTS_EVENT_SIZE+2], data[event_num * FTS_EVENT_SIZE+3],
+ 			                               ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#125: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:272:
++			data[event_num * FTS_EVENT_SIZE+2], data[event_num * FTS_EVENT_SIZE+3],
+ 			                                                                   ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#126: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:273:
++			data[event_num * FTS_EVENT_SIZE+4], data[event_num * FTS_EVENT_SIZE+5],
+ 			                               ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#126: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:273:
++			data[event_num * FTS_EVENT_SIZE+4], data[event_num * FTS_EVENT_SIZE+5],
+ 			                                                                   ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#127: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:274:
++			data[event_num * FTS_EVENT_SIZE+6], data[event_num * FTS_EVENT_SIZE+7]);
+ 			                               ^
+
+CHECK: spaces preferred around that '+' (ctx:VxV)
+#127: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:274:
++			data[event_num * FTS_EVENT_SIZE+6], data[event_num * FTS_EVENT_SIZE+7]);
+ 			                                                                   ^
+
+CHECK: No space is necessary after a cast
+#130: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:276:
++		event_buff = (u8 *) &data[event_num * FTS_EVENT_SIZE];
+
+CHECK: Alignment should match open parenthesis
+#229: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:339:
++			if (!sdata->finger[touch_id].palm &&
++					sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM)
+
+CHECK: Alignment should match open parenthesis
+#244: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:349:
++				max_t(u8, sdata->finger[touch_id].max_strength,
++					p_event_coord->max_strength);
+
+CHECK: Alignment should match open parenthesis
+#247: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:352:
++				max_t(u8, sdata->finger[touch_id].hover_id_num,
++					(u8)p_event_coord->hover_id_num);
+
+CHECK: Unnecessary parentheses around 'sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_NORMAL'
+#256: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:357:
++			if ((sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_WET) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+CHECK: Unnecessary parentheses around 'sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM'
+#256: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:357:
++			if ((sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_WET) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+CHECK: Unnecessary parentheses around 'sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_WET'
+#256: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:357:
++			if ((sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_WET) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+CHECK: Unnecessary parentheses around 'sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_GLOVE'
+#256: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:357:
++			if ((sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_WET) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
+
+CHECK: Alignment should match open parenthesis
+#257: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:358:
++			if ((sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM) ||
+
+CHECK: Alignment should match open parenthesis
+#261: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:362:
++				location_detect(location, sdata->finger[touch_id].x,
++					sdata->finger[touch_id].y);
+
+CHECK: Alignment should match open parenthesis
+#335: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:417:
++					input_report_abs(sdata->input, ABS_MT_POSITION_X,
++						sdata->finger[touch_id].x);
+
+CHECK: Alignment should match open parenthesis
+#337: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:419:
++					input_report_abs(sdata->input, ABS_MT_POSITION_Y,
++						sdata->finger[touch_id].y);
+
+CHECK: Alignment should match open parenthesis
+#412: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:466:
++					input_report_abs(sdata->input, ABS_MT_POSITION_X,
++						sdata->finger[touch_id].x);
+
+CHECK: Alignment should match open parenthesis
+#414: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:468:
++					input_report_abs(sdata->input, ABS_MT_POSITION_Y,
++						sdata->finger[touch_id].y);
+
+CHECK: Alignment should match open parenthesis
+#547: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:562:
++static ssize_t chip_id_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+
+CHECK: Alignment should match open parenthesis
+#556: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:570:
++static ssize_t chip_version_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+
+CHECK: Alignment should match open parenthesis
+#565: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:578:
++static ssize_t fw_ver_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+
+CHECK: Alignment should match open parenthesis
+#574: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:586:
++static ssize_t config_id_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+
+CHECK: Alignment should match open parenthesis
+#583: FILE: drivers/input/touchscreen/stmfts_fts5cu56a.c:594:
++static ssize_t config_version_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+
+total: 0 errors, 0 warnings, 29 checks, 626 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/input-fts5cu56a/v1-0003-Input-stmfts_fts5cu56a-clean-up-coding-style.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

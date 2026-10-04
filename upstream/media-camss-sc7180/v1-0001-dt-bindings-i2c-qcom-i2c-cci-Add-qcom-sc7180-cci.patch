@@ -1,0 +1,27 @@
+From 39c70294e261cddfb180a57d80c6cd565afa46da Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:32:27 +0200
+Subject: [PATCH v1 1/6] dt-bindings: i2c: qcom,i2c-cci: Add qcom,sc7180-cci
+
+The SC7180 / SM7125 SoC has two CCI (Camera Control Interface) v2 blocks,
+compatible with the msm8996-cci fallback. Add the SoC-specific compatible.
+
+---
+ Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml b/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
+index 1e8def25ec0e..b71725761a99 100644
+--- a/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
++++ b/Documentation/devicetree/bindings/i2c/qcom,i2c-cci.yaml
+@@ -32,6 +32,7 @@ properties:
+               - qcom,qcm2290-cci
+               - qcom,qcs8300-cci
+               - qcom,sa8775p-cci
++              - qcom,sc7180-cci
+               - qcom,sc7280-cci
+               - qcom,sc8280xp-cci
+               - qcom,sdm670-cci
+-- 
+2.55.0
+

@@ -1,0 +1,72 @@
+# checkpatch.pl --strict (sm5714)
+-------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/sm5714/0001-dt-bindings-power-supply-add-Silicon-Mitus-SM5714-fu.patch
+-------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#25: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 42 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/sm5714/0001-dt-bindings-power-supply-add-Silicon-Mitus-SM5714-fu.patch has style problems, please review.
+-------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/sm5714/0002-dt-bindings-usb-add-Silicon-Mitus-SM5714-Type-C-CC-d.patch
+-------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#25: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 64 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/sm5714/0002-dt-bindings-usb-add-Silicon-Mitus-SM5714-Type-C-CC-d.patch has style problems, please review.
+-------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/sm5714/0003-power-supply-add-Silicon-Mitus-SM5714-fuel-gauge-dri.patch
+-------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: DT compatible string "siliconmitus,sm5714-fg" appears un-documented -- check ./Documentation/devicetree/bindings/
+#222: FILE: drivers/power/supply/sm5714-fg.c:135:
++	{ .compatible = "siliconmitus,sm5714-fg" },
+
+total: 0 errors, 1 warnings, 0 checks, 189 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/sm5714/0003-power-supply-add-Silicon-Mitus-SM5714-fuel-gauge-dri.patch has style problems, please review.
+------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/sm5714/0004-usb-typec-add-Silicon-Mitus-SM5714-Type-C-CC-driver.patch
+------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: DT compatible string "siliconmitus,sm5714-cc" appears un-documented -- check ./Documentation/devicetree/bindings/
+#275: FILE: drivers/usb/typec/sm5714-cc.c:187:
++	{ .compatible = "siliconmitus,sm5714-cc" },
+
+total: 0 errors, 1 warnings, 0 checks, 240 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/sm5714/0004-usb-typec-add-Silicon-Mitus-SM5714-Type-C-CC-driver.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

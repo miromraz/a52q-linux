@@ -1,0 +1,79 @@
+From 4c92a65a099e6a4328ca335cff21127169a2010c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:28:15 +0200
+Subject: [PATCH v1 07/22] arm64: dts: qcom: sm7125: add A618 GPU OPPs for
+ speed-bin 159
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SM7125 (atoll) A618 parts are fused to GPU speed-bin 159, which the
+driver maps to opp-supported-hw bit 3. The gpu_opp_table inherited
+from sc7180.dtsi has no OPP enabled for that bit, so add the NOM_L1
+750 MHz top OPP that this bin tops out at and extend the shared lower
+OPPs (180-650 MHz) to it. The TURBO/TURBO_L1 800/825 MHz OPPs stay
+sc7180-only.
+
+Override gpu_opp_table from sm7125.dtsi so all SM7125 devices pick up
+the change and the sc7180 SKUs are left untouched.
+
+The Galaxy A52 4G (samsung,a52q) then runs at
+180/267/355/430/565/650/750 MHz.
+
+Based on the sm7125-mainline tree work by Vitalii Skorkin
+<nikroks@mainlining.org>.
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ arch/arm64/boot/dts/qcom/sm7125.dtsi | 39 ++++++++++++++++++++++++++++
+ 1 file changed, 39 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125.dtsi b/arch/arm64/boot/dts/qcom/sm7125.dtsi
+index a53145a610a3..1cd3f9b27946 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm7125.dtsi
+@@ -14,3 +14,42 @@
+ &cpu5 { compatible = "qcom,kryo465"; };
+ &cpu6 { compatible = "qcom,kryo465"; };
+ &cpu7 { compatible = "qcom,kryo465"; };
++
++/*
++ * The Adreno 618 on SM7125 (atoll) is fused to GPU speed-bin 159, which the
++ * driver maps to opp-supported-hw bit 3 (0x08). Add the NOM_L1 750 MHz top
++ * OPP this bin tops out at and extend the shared lower OPPs to it. The
++ * TURBO/TURBO_L1 800/825 MHz OPPs stay sc7180-only (no bit 3 set).
++ */
++&gpu_opp_table {
++	opp-750000000 {
++		opp-hz = /bits/ 64 <750000000>;
++		opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
++		opp-peak-kBps = <7216000>;
++		opp-supported-hw = <0x08>;
++	};
++
++	opp-650000000 {
++		opp-supported-hw = <0x0f>;
++	};
++
++	opp-565000000 {
++		opp-supported-hw = <0x0f>;
++	};
++
++	opp-430000000 {
++		opp-supported-hw = <0x0f>;
++	};
++
++	opp-355000000 {
++		opp-supported-hw = <0x0f>;
++	};
++
++	opp-267000000 {
++		opp-supported-hw = <0x0f>;
++	};
++
++	opp-180000000 {
++		opp-supported-hw = <0x0f>;
++	};
++};
+-- 
+2.55.0
+

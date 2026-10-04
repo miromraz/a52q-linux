@@ -1,0 +1,35 @@
+From 9a8f4a3b42483ef739ceeb9cfb4a92dc2d9f5342 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:40:54 +0200
+Subject: [PATCH v1 0/5] nfc: s3fwrn5: support the Samsung S3NRN4V variant
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add support for the S3NRN4V NFC controller variant and its PVDD supply,
+plus two small cleanups, for the Samsung Galaxy A52 4G (a52q).
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Jorijn van der Graaf (5):
+  nfc: s3fwrn5: drop of_match_ptr() from the I2C driver
+  nfc: s3fwrn5: use the "s3fwrn5_i2c" string literal directly
+  dt-bindings: net: nfc: samsung,s3fwrn5: add the S3NRN4V
+  nfc: s3fwrn5: enable the PVDD supply
+  nfc: s3fwrn5: support the S3NRN4V variant
+
+ .../bindings/net/nfc/samsung,s3fwrn5.yaml     |  19 +-
+ drivers/nfc/s3fwrn5/core.c                    |  34 +++-
+ drivers/nfc/s3fwrn5/i2c.c                     |  26 ++-
+ drivers/nfc/s3fwrn5/nci.c                     | 179 +++++++++++++++++-
+ drivers/nfc/s3fwrn5/nci.h                     |  23 ++-
+ drivers/nfc/s3fwrn5/s3fwrn5.h                 |  14 +-
+ drivers/nfc/s3fwrn5/uart.c                    |   2 +-
+ 7 files changed, 283 insertions(+), 14 deletions(-)
+
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

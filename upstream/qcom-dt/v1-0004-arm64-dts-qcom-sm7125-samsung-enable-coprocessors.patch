@@ -1,0 +1,213 @@
+From 5252f09d5f300dd537ccf1f69700ac972c052119 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 23:54:41 +0200
+Subject: [PATCH v1 04/22] arm64: dts: qcom: sm7125-samsung: enable
+ coprocessors, Wi-Fi and Bluetooth
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Enable the peripherals that already have mainline drivers and that the
+downstream device tree wires up: the ADSP and modem (MPSS) remote
+processors, the IPA, the Adreno 618 zap shader and Venus (all with the
+a52q firmware paths), and the ath10k WCN3990 Wi-Fi with its regulators.
+Add the WCN3988 Bluetooth controller on UART3 together with the UART
+sleep pin state, and turn on both QUPv3 wrappers so the already
+described I2C buses and the Bluetooth UART actually probe.
+
+The CDSP remote processor is left out: sc7180.dtsi carries no cdsp
+remoteproc node to reference.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 30 ++++++
+ .../boot/dts/qcom/sm7125-samsung-common.dtsi  | 96 +++++++++++++++++++
+ 2 files changed, 126 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index 1cf0dfdc3282..dc9f9533c071 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -20,6 +20,14 @@ &rmtfs_mem {
+ 	reg = <0x0 0xf4f00000 0x0 0x202000>;
+ };
+ 
++&bluetooth {
++	firmware-name = "sm7125/a52q/apnv11.bin";
++};
++
++&gpu_zap_shader {
++	firmware-name = "qcom/sm7125/a52q/a615_zap.mbn";
++};
++
+ &i2c4 {
+ 	status = "okay";
+ 
+@@ -118,6 +126,24 @@ sm5714_mux_ep: endpoint@1 {
+ 	};
+ };
+ 
++&ipa {
++	firmware-name = "qcom/sm7125/a52q/ipa_fws.mbn";
++
++	status = "okay";
++};
++
++&remoteproc_adsp {
++	firmware-name = "qcom/sm7125/a52q/adsp.mbn";
++
++	status = "okay";
++};
++
++&remoteproc_mpss {
++	firmware-name = "qcom/sm7125/a52q/modem.mbn";
++
++	status = "okay";
++};
++
+ &tlmm {
+ 	tsp_int: tsp-int-state {
+ 		pins = "gpio9";
+@@ -142,3 +168,7 @@ &usb_1_dwc3 {
+ &usb_1_dwc3_hs {
+ 	remote-endpoint = <&sm5714_hs_ep>;
+ };
++
++&venus {
++	firmware-name = "qcom/sm7125/a52q/venus.mbn";
++};
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+index b8863e111bc4..e4ec8d5d1470 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+@@ -380,6 +380,10 @@ &dispcc {
+ 	status = "disabled";
+ };
+ 
++&ipa {
++	memory-region = <&ipa_fw_mem>;
++};
++
+ &pm6150l_gpios {
+ 	key_vol_up_default: key-vol-up-default-state {
+ 		pins = "gpio8";
+@@ -422,6 +426,18 @@ &qfprom {
+ 	vcc-supply = <&vreg_l11a_1p8>;
+ };
+ 
++&qupv3_id_0 {
++	status = "okay";
++};
++
++&qupv3_id_1 {
++	status = "okay";
++};
++
++&remoteproc_adsp {
++	memory-region = <&adsp_mem>;
++};
++
+ &sdhc_2 {
+ 	vmmc-supply = <&vreg_l9c_2p95>;
+ 	vqmmc-supply = <&vreg_l6c_3p0>;
+@@ -436,6 +452,51 @@ &sdhc_2 {
+ &tlmm {
+ 	gpio-reserved-ranges = <59 4>; /* Fingerprint sensor SPI */
+ 
++	qup_uart3_sleep: qup-uart3-sleep-state {
++		cts-pins {
++			/*
++			 * Configure a pull-down on CTS to match the pull of
++			 * the Bluetooth module.
++			 */
++			pins = "gpio38";
++			function = "gpio";
++			bias-pull-down;
++		};
++
++		rts-pins {
++			/*
++			 * Configure pull-down on RTS. As RTS is active low
++			 * signal, pull it low to indicate the BT SoC that it
++			 * can wakeup the system anytime from suspend state by
++			 * pulling RX low (by sending wakeup bytes).
++			 */
++			pins = "gpio39";
++			function = "gpio";
++			bias-pull-down;
++		};
++
++		tx-pins {
++			/*
++			 * Configure pull-up on TX when it isn't actively driven
++			 * to prevent BT SoC from receiving garbage during sleep.
++			 */
++			pins = "gpio40";
++			function = "gpio";
++			bias-pull-up;
++		};
++
++		rx-pins {
++			/*
++			 * Configure a pull-up on RX. This is needed to avoid
++			 * garbage data when the TX pin of the Bluetooth module
++			 * is floating which may cause spurious wakeups.
++			 */
++			pins = "gpio41";
++			function = "gpio";
++			bias-pull-up;
++		};
++	};
++
+ 	sdc2_on: sdc2-on-state {
+ 		clk-pins {
+ 			pins = "sdc2_clk";
+@@ -491,6 +552,31 @@ sd-cd-pins {
+ 	};
+ };
+ 
++&uart3 {
++	/delete-property/interrupts;
++	interrupts-extended = <&intc GIC_SPI 604 IRQ_TYPE_LEVEL_HIGH>,
++			      <&tlmm 41 IRQ_TYPE_EDGE_FALLING>;
++
++	pinctrl-names = "default", "sleep";
++	pinctrl-1 = <&qup_uart3_sleep>;
++
++	status = "okay";
++
++	bluetooth: bluetooth {
++		compatible = "qcom,wcn3988-bt";
++
++		local-bd-address = [ 22 00 00 00 5a ad ];
++
++		vddio-supply = <&vreg_l10a_1p8>;
++		vddxo-supply = <&vreg_l1c_1p8>;
++		vddrf-supply = <&vreg_l2c_1p3>;
++		vddch0-supply = <&vreg_l10c_3p3>;
++		swctrl-gpios = <&tlmm 73 GPIO_ACTIVE_HIGH>;
++
++		max-speed = <3200000>;
++	};
++};
++
+ &ufs_mem_hc {
+ 	vcc-supply = <&vreg_l19a_2p85>;
+ 	vcc-max-microamp = <600000>;
+@@ -534,3 +620,13 @@ &usb_1_qmpphy {
+ 
+ 	status = "okay";
+ };
++
++&wifi {
++	vdd-0.8-cx-mx-supply = <&vreg_l9a_0p8>;
++	vdd-1.8-xo-supply = <&vreg_l1c_1p8>;
++	vdd-1.3-rfa-supply = <&vreg_l2c_1p3>;
++	vdd-3.3-ch0-supply = <&vreg_l10c_3p3>;
++	vdd-3.3-ch1-supply = <&vreg_l11c_3p3>;
++
++	status = "okay";
++};
+-- 
+2.55.0
+

@@ -1,0 +1,32 @@
+diff --git a/hexagonrpcd/rpcd_builder.c b/hexagonrpcd/rpcd_builder.c
+index fa29ff2..9082abf 100644
+--- a/hexagonrpcd/rpcd_builder.c
++++ b/hexagonrpcd/rpcd_builder.c
+@@ -199,13 +199,26 @@ struct hexagonfs_dirent *construct_root_dir(const char *prefix, const char *dsp)
+ 				)
+ 			);
+ 
+-	return hfs_mkdir("/", 6,
++	/*
++	 * a52q (SM7125): the SEE sensor PD on this device resolves the registry
++	 * from a base that ends up empty, so it opens the version file as the
++	 * root-relative "/../sns_reg_version" (which resolves to "/sns_reg_version")
++	 * and writes its registry group files root-relative too. Expose the
++	 * registry dir and its version/temp siblings at the tree root as well,
++	 * backed by the same writable files as the /mnt/vendor/persist copy, so
++	 * those accesses resolve. Purely additive: the sunfish/Android-path
++	 * mappings above are unchanged.
++	 */
++	return hfs_mkdir("/", 9,
+ 			hfs_mkdir("mnt", 1,
+ 				hfs_mkdir("vendor", 1,
+ 					persist_dir
+ 				)
+ 			),
+ 			persist_dir,
++			hfs_map("registry", sns_reg),
++			hfs_map("sns_reg_version", sns_reg_version),
++			hfs_map("temp.json", sns_reg_temp_json),
+ 			hfs_mkdir("sys", 1,
+ 				hfs_mkdir("devices", 1,
+ 					hfs_map_or_empty("soc0", socinfo)

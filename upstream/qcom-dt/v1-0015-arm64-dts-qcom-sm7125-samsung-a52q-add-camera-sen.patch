@@ -1,0 +1,267 @@
+From 01d5a05d62adb04df3d4fe8791e6162bdb4b7ed0 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:10:05 +0200
+Subject: [PATCH v1 15/22] arm64: dts: qcom: sm7125-samsung-a52q: add camera
+ sensors and CAMSS
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Wire up the CAMSS receiver and three camera sensors on the Samsung
+Galaxy A52 (a52q):
+
+  - Sony IMX616 32MP front camera, 4-lane D-PHY on CSIPHY2 (CCI1);
+  - Samsung S5K3L6XX 13MP ultra-wide, 4-lane D-PHY on CSIPHY3 (CCI0),
+    reached through a gpio66 MIPI switch modelled as a video-mux;
+  - Samsung S5KGW1P 64MP main camera, 3-trio C-PHY on CSIPHY0 (CCI0).
+
+Enable camcc, both CCI controllers and CAMSS, and add the MCLK pinctrl.
+The main camera uses MIPI C-PHY, which the mainline CAMSS driver does
+not yet support, so it is described but will not stream until C-PHY
+receive support lands.
+
+The macro camera (GalaxyCore GC5035) has no mainline binding yet and is
+left out; the video-mux keeps a reserved input port for it.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 201 +++++++++++++++++-
+ 1 file changed, 200 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index 47f4b3d5e07f..f59ee2acadda 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -7,10 +7,12 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/clock/qcom,camcc-sc7180.h>
+ #include <dt-bindings/interrupt-controller/irq.h>
+ #include <dt-bindings/sound/qcom,q6afe.h>
+ #include <dt-bindings/sound/qcom,q6asm.h>
+ #include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
++#include <dt-bindings/media/video-interfaces.h>
+ #include "sm7125-samsung-common.dtsi"
+ 
+ / {
+@@ -102,7 +104,7 @@ wcd938x: audio-codec {
+ 	};
+ 
+ 	/* S2MPB03 camera PMIC on a bit-banged bus (gpio25 SDA, gpio26 SCL) */
+-	i2c-cam-pmic {
++	i2c-campmic {
+ 		compatible = "i2c-gpio";
+ 		sda-gpios = <&tlmm 25 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+ 		scl-gpios = <&tlmm 26 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+@@ -166,6 +168,49 @@ vreg_cam2_vana: regulator-cam2-vana {
+ 		gpio = <&tlmm 65 GPIO_ACTIVE_HIGH>;
+ 		enable-active-high;
+ 	};
++
++	/*
++	 * The ultra-wide (S5K3L6XX) and macro (GC5035) cameras share CSIPHY3
++	 * through a gpio66 MIPI switch, modelled as a video-mux. gpio66 low
++	 * selects the ultra-wide (mux state 0), high the macro (state 1).
++	 */
++	cam_mipi_mux: mux-controller {
++		compatible = "gpio-mux";
++		#mux-control-cells = <0>;
++		mux-gpios = <&tlmm 66 GPIO_ACTIVE_HIGH>;
++	};
++
++	video-mux {
++		compatible = "video-mux";
++		mux-controls = <&cam_mipi_mux>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		port@0 {
++			reg = <0>;	/* mux state 0: ultra-wide */
++			vmux_in_uw: endpoint {
++				remote-endpoint = <&cam_s5k3l6_ep>;
++			};
++		};
++
++		port@1 {
++			reg = <1>;	/* mux state 1: macro */
++			/*
++			 * The macro camera is a GalaxyCore GC5035, which has
++			 * no mainline binding yet, so its sensor node and this
++			 * endpoint's remote are left to a later change.
++			 */
++			vmux_in_macro: endpoint {
++			};
++		};
++
++		port@2 {
++			reg = <2>;	/* output to CSIPHY3 */
++			vmux_out: endpoint {
++				remote-endpoint = <&csiphy3_ep>;
++			};
++		};
++	};
+ };
+ 
+ &rmtfs_mem {
+@@ -524,3 +569,157 @@ &txmacro {
+ &vamacro {
+ 	status = "okay";
+ };
++
++&camcc {
++	status = "okay";
++};
++
++&cci0 {
++	status = "okay";
++};
++
++/* main: Samsung S5KGW1P, 3-trio C-PHY, CSIPHY0, MCLK0 19.2 MHz */
++&cci0_i2c0 {
++	cam_main: camera@2d {
++		compatible = "samsung,s5kgw1p";
++		reg = <0x2d>;
++		vio-supply = <&vreg_cam_l3>;
++		vana-supply = <&vreg_cam_l5>;
++		vdig-supply = <&vreg_cam_l2>;
++		vaf-supply = <&vreg_cam_l7>;
++		vcustom-supply = <&vreg_cam0_avdd18>;
++		clocks = <&camcc CAM_CC_MCLK0_CLK>;
++		clock-names = "mclk";
++		assigned-clocks = <&camcc CAM_CC_MCLK0_CLK>;
++		assigned-clock-rates = <19200000>;
++		reset-gpios = <&tlmm 30 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&cam_mclk0_default>;
++		pinctrl-names = "default";		orientation = <1>;
++		rotation = <270>;
++
++		port {
++			cam_s5kgw1p_ep: endpoint {
++				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
++				data-lanes = <1 2 3>;
++				link-frequencies = /bits/ 64 <1000000000>;
++				remote-endpoint = <&csiphy0_ep>;
++			};
++		};
++	};
++};
++
++/* ultra-wide: Samsung S5K3L6XX, 4-lane D-PHY, CSIPHY3 via video-mux, MCLK2 */
++&cci0_i2c1 {
++	camera@2d {
++		compatible = "samsung,s5k3l6xx";
++		reg = <0x2d>;
++		vddio-supply = <&vreg_cam_l3>;
++		vdda-supply = <&vreg_cam2_vana>;
++		vddd-supply = <&vreg_cam_l1>;
++		clocks = <&camcc CAM_CC_MCLK2_CLK>;
++		clock-names = "mclk";
++		clock-frequency = <19200000>;
++		assigned-clocks = <&camcc CAM_CC_MCLK2_CLK>;
++		assigned-clock-rates = <19200000>;
++		rstn-gpios = <&tlmm 29 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&cam_mclk2_default>;
++		pinctrl-names = "default";		orientation = <1>;
++		rotation = <270>;
++
++		port {
++			cam_s5k3l6_ep: endpoint {
++				data-lanes = <1 2 3 4>;
++				link-frequencies = /bits/ 64 <259200000 480000000 595200000>;
++				remote-endpoint = <&vmux_in_uw>;
++			};
++		};
++	};
++};
++
++&cci1 {
++	status = "okay";
++};
++
++/* front: Sony IMX616, 4-lane D-PHY, CSIPHY2, MCLK4 24 MHz */
++&cci1_i2c0 {
++	camera@1a {
++		compatible = "sony,imx616";
++		reg = <0x1a>;
++		vio-supply = <&vreg_cam_l3>;
++		vana-supply = <&vreg_cam_l6>;
++		vdig-supply = <&vreg_cam_l1>;
++		clocks = <&camcc CAM_CC_MCLK4_CLK>;
++		clock-names = "mclk";
++		assigned-clocks = <&camcc CAM_CC_MCLK4_CLK>;
++		assigned-clock-rates = <24000000>;
++		reset-gpios = <&tlmm 21 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&cam_mclk4_default>;
++		pinctrl-names = "default";		orientation = <0>;
++		rotation = <90>;
++
++		port {
++			cam_imx616_ep: endpoint {
++				data-lanes = <1 2 3 4>;
++				link-frequencies = /bits/ 64 <516000000>;
++				remote-endpoint = <&csiphy2_ep>;
++			};
++		};
++	};
++};
++
++&camss {
++	status = "okay";
++
++	ports {
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		port@0 {
++			reg = <0>;
++			csiphy0_ep: endpoint {
++				bus-type = <MEDIA_BUS_TYPE_CSI2_CPHY>;
++				data-lanes = <0 1 2>;
++				remote-endpoint = <&cam_s5kgw1p_ep>;
++			};
++		};
++
++		port@2 {
++			reg = <2>;
++			csiphy2_ep: endpoint {
++				data-lanes = <0 1 2 3>;
++				remote-endpoint = <&cam_imx616_ep>;
++			};
++		};
++
++		port@3 {
++			reg = <3>;
++			csiphy3_ep: endpoint {
++				data-lanes = <0 1 2 3>;
++				remote-endpoint = <&vmux_out>;
++			};
++		};
++	};
++};
++
++&tlmm {
++	cam_mclk0_default: cam-mclk0-default-state {
++		pins = "gpio13";
++		function = "cam_mclk";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
++	cam_mclk2_default: cam-mclk2-default-state {
++		pins = "gpio15";
++		function = "cam_mclk";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
++	cam_mclk4_default: cam-mclk4-default-state {
++		pins = "gpio23";
++		function = "cam_mclk";
++		drive-strength = <2>;
++		bias-disable;
++	};
++};
+-- 
+2.55.0
+

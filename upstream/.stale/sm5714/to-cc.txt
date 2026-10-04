@@ -1,0 +1,10 @@
+Conor Dooley <conor+dt@kernel.org>
+devicetree@vger.kernel.org
+Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Heikki Krogerus <heikki.krogerus@linux.intel.com>
+Krzysztof Kozlowski <krzk+dt@kernel.org>
+linux-kernel@vger.kernel.org
+linux-pm@vger.kernel.org
+linux-usb@vger.kernel.org
+Rob Herring <robh@kernel.org>
+Sebastian Reichel <sre@kernel.org>

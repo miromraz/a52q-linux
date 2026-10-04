@@ -1,0 +1,9 @@
+"André Draszik" <andre.draszik@linaro.org>
+Conor Dooley <conor+dt@kernel.org>
+devicetree@vger.kernel.org
+Krzysztof Kozlowski <krzk+dt@kernel.org>
+Liam Girdwood <lgirdwood@gmail.com>
+linux-kernel@vger.kernel.org
+linux-samsung-soc@vger.kernel.org
+Mark Brown <broonie@kernel.org>
+Rob Herring <robh@kernel.org>

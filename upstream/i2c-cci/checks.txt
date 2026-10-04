@@ -1,0 +1,13 @@
+# checkpatch.pl --strict (i2c-cci)
+--------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/i2c-cci/0001-dt-bindings-i2c-qcom-i2c-cci-add-interconnects.patch
+--------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 12 lines checked
+
+/home/realni/linux-a52q/upstream/i2c-cci/0001-dt-bindings-i2c-qcom-i2c-cci-add-interconnects.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/i2c-cci/0002-i2c-qcom-cci-keep-CAMNOC-interconnect-voted-while-cl.patch
+--------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 71 lines checked
+
+/home/realni/linux-a52q/upstream/i2c-cci/0002-i2c-qcom-cci-keep-CAMNOC-interconnect-voted-while-cl.patch has no obvious style problems and is ready for submission.

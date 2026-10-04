@@ -1,0 +1,142 @@
+From a4b51ed7ca650166d4a6ba78b4db1c0c0c1bc192 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 05:01:53 +0200
+Subject: [PATCH v1 4/5] dt-bindings: media: gc5035: use mclk clock-name and
+ add label
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The driver requests its external clock as "mclk", so make the binding
+match. Add an optional "label" property so a board with more than one
+GC5035 (the Galaxy A52 4G has a macro and a depth module) can give each
+sensor a distinct entity name for per-module tuning.
+
+Rename the file to the vendor-prefixed galaxycore,gc5035.yaml, add the
+trailing '#' to $id, and fix the example, which referenced the
+undocumented reset-gpios and the old inclk clock-name. Point the port
+description at the current video-interfaces.yaml, record the binding in
+MAINTAINERS and add myself as a co-maintainer.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../{gc5035.yaml => galaxycore,gc5035.yaml}   | 28 ++++++++++++-------
+ MAINTAINERS                                   |  4 ++-
+ 2 files changed, 21 insertions(+), 11 deletions(-)
+ rename Documentation/devicetree/bindings/media/i2c/{gc5035.yaml => galaxycore,gc5035.yaml} (81%)
+
+diff --git a/Documentation/devicetree/bindings/media/i2c/gc5035.yaml b/Documentation/devicetree/bindings/media/i2c/galaxycore,gc5035.yaml
+similarity index 81%
+rename from Documentation/devicetree/bindings/media/i2c/gc5035.yaml
+rename to Documentation/devicetree/bindings/media/i2c/galaxycore,gc5035.yaml
+index cf8cc3b581cf..e29c293158a5 100644
+--- a/Documentation/devicetree/bindings/media/i2c/gc5035.yaml
++++ b/Documentation/devicetree/bindings/media/i2c/galaxycore,gc5035.yaml
+@@ -2,19 +2,23 @@
+ # Copyright (c) 2019 MediaTek Inc.
+ %YAML 1.2
+ ---
+-$id: http://devicetree.org/schemas/media/i2c/gc5035.yaml
++$id: http://devicetree.org/schemas/media/i2c/galaxycore,gc5035.yaml#
+ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ 
+-title: Galaxycore Inc. GC5035 CMOS Sensor Device Tree Bindings
++title: Galaxycore Inc. GC5035 CMOS Sensor
+ 
+ maintainers:
+   - Tomasz Figa <tfiga@chromium.org>
++  - Miroslav Mráz <miroslav.mraz@techmania.cz>
+ 
+ description: |-
+   The Galaxycore Inc. GC5035 is a 5 megapixel, 1/5 inch CMOS 10-bit Bayer image
+   sensor that delivers 2592x1944 at 30fps. This chip is programmable through
+   an I2C interface. The image output is available via a MIPI CSI-2 interface.
+ 
++allOf:
++  - $ref: /schemas/media/video-interface-devices.yaml#
++
+ properties:
+   compatible:
+     const: galaxycore,gc5035
+@@ -29,11 +33,17 @@ properties:
+     description:
+       Input clock for the sensor.
+     items:
+-      - const: inclk
++      - const: mclk
+ 
+   clock-frequency:
+     description:
+-      Frequency of the inclk clock in Hz.
++      Frequency of the mclk clock in Hz.
++
++  label:
++    description:
++      Identifier to distinguish between multiple GC5035 modules fitted to the
++      same board (for example a macro and a depth camera). Userspace uses it to
++      select per-module tuning.
+ 
+   iovdd-supply:
+     description:
+@@ -65,7 +75,7 @@ properties:
+     description:
+       A node containing an output port node with an endpoint definition
+       as documented in
+-      Documentation/devicetree/bindings/media/video-interfaces.txt
++      Documentation/devicetree/bindings/media/video-interfaces.yaml
+ 
+     properties:
+       endpoint:
+@@ -99,10 +109,9 @@ required:
+   - avdd28-supply
+   - dvdd12-supply
+   - resetb-gpios
+-  - pwdn-gpios
+   - port
+ 
+-additionalProperties: false
++unevaluatedProperties: false
+ 
+ examples:
+   - |
+@@ -116,13 +125,13 @@ examples:
+             compatible = "galaxycore,gc5035";
+             reg = <0x10>;
+ 
+-            reset-gpios = <&pio 111 GPIO_ACTIVE_LOW>;
++            resetb-gpios = <&pio 111 GPIO_ACTIVE_LOW>;
+             pwdn-gpios = <&pio 112 GPIO_ACTIVE_LOW>;
+             pinctrl-names = "default";
+             pinctrl-0 = <&clk_24m_cam>;
+ 
+             clocks = <&cam_osc>;
+-            clock-names = "inclk";
++            clock-names = "mclk";
+             clock-frequency = <24000000>;
+ 
+             avdd28-supply = <&mt6358_vcama2_reg>;
+@@ -139,4 +148,3 @@ examples:
+         };
+     };
+ ...
+-
+diff --git a/MAINTAINERS b/MAINTAINERS
+index fb1094b59869..056bc56e654c 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -10875,9 +10875,11 @@ F:	drivers/media/i2c/gc2145.c
+ 
+ GALAXYCORE GC5035 SENSOR DRIVER
+ M:	Tomasz Figa <tfiga@chromium.org>
++M:	Miroslav Mráz <miroslav.mraz@techmania.cz>
+ L:	linux-media@vger.kernel.org
+ S:	Maintained
+-T:	git git://linuxtv.org/media_tree.git
++T:	git git://linuxtv.org/media.git
++F:	Documentation/devicetree/bindings/media/i2c/galaxycore,gc5035.yaml
+ F:	drivers/media/i2c/gc5035.c
+ 
+ GATEWORKS SYSTEM CONTROLLER (GSC) DRIVER
+-- 
+2.55.0
+

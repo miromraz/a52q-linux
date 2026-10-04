@@ -1,0 +1,19 @@
+# checkpatch.pl --strict (asoc-tas2562)
+-------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/asoc-tas2562/v1-0001-ASoC-tas2562-support-frame-sync-polarity-inversio.patch
+-------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 39 lines checked
+
+/home/realni/linux-a52q/upstream/asoc-tas2562/v1-0001-ASoC-tas2562-support-frame-sync-polarity-inversio.patch has no obvious style problems and is ready for submission.
+---------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/asoc-tas2562/v1-0002-dt-bindings-ASoC-tas2562-add-ti-rx-slot-width.patch
+---------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 14 lines checked
+
+/home/realni/linux-a52q/upstream/asoc-tas2562/v1-0002-dt-bindings-ASoC-tas2562-add-ti-rx-slot-width.patch has no obvious style problems and is ready for submission.
+-------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/asoc-tas2562/v1-0003-ASoC-tas2562-pin-the-RX-slot-width-from-the-devic.patch
+-------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 64 lines checked
+
+/home/realni/linux-a52q/upstream/asoc-tas2562/v1-0003-ASoC-tas2562-pin-the-RX-slot-width-from-the-devic.patch has no obvious style problems and is ready for submission.

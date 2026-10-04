@@ -1,0 +1,47 @@
+From 707cfa689348b483a23f0da159c81a6a7b5861da Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 04:10:35 +0200
+Subject: [PATCH v1 21/22] arm64: dts: qcom: sm7125-samsung-a52q: describe the
+ q6afe ports
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The speaker amplifiers are on QUINARY_MI2S_RX with data on SD line 0;
+without qcom,sd-lines the AFE port cannot be prepared ("no line is
+assigned"). Also list the codec DMA ports used by the WCD938x paths.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index cbb4a7b11fe2..5794c27cacda 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -213,6 +213,21 @@ vmux_out: endpoint {
+ 	};
+ };
+ 
++&q6afedai {
++	dai@113 {
++		reg = <RX_CODEC_DMA_RX_0>;
++	};
++
++	dai@120 {
++		reg = <TX_CODEC_DMA_TX_3>;
++	};
++
++	dai@127 {
++		reg = <QUINARY_MI2S_RX>;
++		qcom,sd-lines = <0>;
++	};
++};
++
+ &q6asmdai {
+ 	dai@0 {
+ 		reg = <0>;
+-- 
+2.55.0
+

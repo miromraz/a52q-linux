@@ -1,0 +1,32 @@
+# series.manifest  — one line per series (resumable branch assembly)
+# format:  name | base | commit[^fixup...] commit...
+# base is a git ref (BASE=v7.3-rc5=72d3fcf802c4, or up/<dep>)
+# ^fixup after a commit = cherry-pick commit then fold fixup(s) via --amend
+# Source hashes are from a52q/integ tip 22c75c6ffc66.
+
+watchdog | BASE | 1ef99dcd5703
+ath10k | BASE | eec8854d01a2
+serial-geni | BASE | 29279c70bfda
+i2c-cci | BASE | a750636619e2 9db276709873
+regulator-s2mpb03 | BASE | 2b735455e9ef 45da2e9ee7dd
+power-supply-sm5714 | BASE | 933cdd7ade74 3e0d4a12a6a8 26581b3a3144 04637bd4f226 ff6b75c9beda
+typec-sm5714 | BASE | bd22966c6e87^307692843d9b 80f8afec33e2^cf84b308f34c 49733de24536 353512759602
+nfc-s3fwrn5 | BASE | a1f2d0dd45af b6ca33fea04f 79bcfac6927c 2bbcf8e57780 1c8c602988d6
+input-fts5cu56a | BASE | 8cd362ef271d b62482e86aaa^81387a1b7cb4 3210aaf264e3
+drm-panel-s6e3fc3 | BASE | e0581e1a11e2 a31135e9c93c
+drm-msm-a618 | BASE | 7a8c18b5bd7d
+asoc-tas2562 | BASE | ec32d4a3803e deed152404c5 1ad0511958b4
+pinctrl-qcom-lpass | BASE | 67b8e5b1928f
+soc-qcom-smp2p | BASE | 13259c3f53d6 6d6e9f4e7344 e6243b0d6a45
+soc-qcom-pd-mapper | BASE | 5d73f163c092
+firmware-qcom-tzmem | BASE | 776e8b23bf81
+media-ak7374 | BASE | a17573b663e2 5c6d3baf3789
+media-ois-mcu | BASE | 33a3530d473e 78b599534c8e
+media-sensor-imx616 | BASE | a99987437e6a 86122d6931bc
+media-sensor-s5k3l6xx | BASE | 13a247126859 eded0ea59a95
+media-sensor-s5kgw1p | BASE | 0eb517a5b438 8474b8e4ebfd
+media-sensor-gc5035 | BASE | 6f9aac963116 7ea6543640d1 14e768e7ddb9 624d967ae36b 55c06b2f0c67
+media-camss-fixes | BASE | 7554dbcfbb5e d4afd1cfa34c
+media-camss-cphy | BASE | 4caa529506f0 76ec5dbeac2f ebc51b75a696 2e70f962d3fd 9273e3bf2ede 36b0c07fb0c0 66235603a6cd d145d73e11bd 08ca612787fd
+media-camss-sc7180 | up/media-camss-cphy | 4888fedfb774 61c7731be87f db39d177bbf5 a03cd9a71595 61f9330a2c79 6047f7fcef69
+qcom-dt | BASE | bf39e2bb34cc 6675d6b116b6 271391b80237^95c81aab498b^fad62f58f481 93734523c5c9 bec93100a278 2ef1067dea90 2f9f1026ab60 cfd26e089a1c 57ecd16ca60c 3aa1c70c94bb c7dc0c395ec0 5c9cbe0b37f5 a9f9787bdc13 3cc68cf03b87 a080a5268de7 ce4bcb384d54 4daf92c270f2 238fec62f50a 36c84f368111 65a9219fe230 1db2ba90c1be 22938d9ed49b

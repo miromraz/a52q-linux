@@ -1,0 +1,38 @@
+From d10d1b7e5101af1e51067dceeeee38a3af0d885f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:40:54 +0200
+Subject: [PATCH v1 0/6] media: qcom: camss: add SC7180 (SM7125) support
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add SC7180/SM7125 camss support: CCI and CAMSS bindings, the VFE-170
+based CAMSS_7180 version, CSIPHY D-PHY/C-PHY lane settings. Based on the
+C-PHY series. NOTE: these commits currently lack Signed-off-by lines --
+the author must add them before this series is sent.
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Miroslav Mráz (6):
+  dt-bindings: i2c: qcom,i2c-cci: Add qcom,sc7180-cci
+  dt-bindings: media: qcom,camss: Add SC7180 CAMSS binding
+  media: qcom: camss: Add support for SC7180
+  media: qcom: camss: Mark SC7180 CSIPHY as gen2
+  media: qcom: camss: Add SC7180 CSIPHY D-PHY lane settings
+  media: qcom: camss: Add C-PHY support for SC7180
+
+ .../devicetree/bindings/i2c/qcom,i2c-cci.yaml |   1 +
+ .../bindings/media/qcom,sc7180-camss.yaml     | 294 ++++++++++++++++++
+ .../qcom/camss/camss-csiphy-3ph-1-0.c         | 266 +++++++++++++++-
+ drivers/media/platform/qcom/camss/camss-vfe.c |   2 +
+ drivers/media/platform/qcom/camss/camss.c     | 215 +++++++++++++
+ drivers/media/platform/qcom/camss/camss.h     |   1 +
+ 6 files changed, 778 insertions(+), 1 deletion(-)
+ create mode 100644 Documentation/devicetree/bindings/media/qcom,sc7180-camss.yaml
+
+
+base-commit: 19d28e9813e564f47c4231710aaa454ca8c707df
+-- 
+2.55.0
+

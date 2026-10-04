@@ -1,0 +1,66 @@
+From cd7ab1f0fb6d716f288838ccaa05c4401606c0b3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:10:48 +0200
+Subject: [PATCH v1 16/22] arm64: dts: qcom: sm7125-samsung-a52q: add camera
+ VCM and EEPROMs
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add the main camera's AK7374 voice-coil-motor lens actuator and the two
+camera-module EEPROMs (main and front) on QUP i2c9, and link the main
+S5KGW1P sensor to the VCM through lens-focus for autofocus.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 37 +++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index f59ee2acadda..d18933582867 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -723,3 +723,40 @@ cam_mclk4_default: cam-mclk4-default-state {
+ 		bias-disable;
+ 	};
+ };
++
++/*
++ * Main camera VCM (AK7374) and the module EEPROMs live on QUP i2c9: the
++ * main-module OTP at 0x50 and the front-module OTP at 0x51.
++ */
++&i2c9 {
++	clock-frequency = <400000>;
++	status = "okay";
++
++	cam_main_vcm: camera-lens@c {
++		compatible = "asahi-kasei,ak7374";
++		reg = <0x0c>;
++		vdd-supply = <&vreg_cam_l7>;
++		vio-supply = <&vreg_cam_l3>;
++	};
++
++	eeprom@50 {
++		compatible = "atmel,24c64";
++		reg = <0x50>;
++		pagesize = <32>;
++		read-only;
++		vcc-supply = <&vreg_cam_l3>;
++	};
++
++	eeprom@51 {
++		compatible = "onnn,n24s64b", "atmel,24c64";
++		reg = <0x51>;
++		pagesize = <32>;
++		read-only;
++		vcc-supply = <&vreg_cam_l3>;
++	};
++};
++
++/* Autofocus: the main sensor drives the AK7374 VCM. */
++&cam_main {
++	lens-focus = <&cam_main_vcm>;
++};
+-- 
+2.55.0
+

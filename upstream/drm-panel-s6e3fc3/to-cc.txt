@@ -1,0 +1,13 @@
+Conor Dooley <conor+dt@kernel.org>
+David Airlie <airlied@gmail.com>
+devicetree@vger.kernel.org
+dri-devel@lists.freedesktop.org
+Jessica Zhang <jesszhan0024@gmail.com>
+Krzysztof Kozlowski <krzk+dt@kernel.org>
+linux-kernel@vger.kernel.org
+Maarten Lankhorst <maarten.lankhorst@linux.intel.com>
+Maxime Ripard <mripard@kernel.org>
+Neil Armstrong <neil.armstrong@linaro.org>
+Rob Herring <robh@kernel.org>
+Simona Vetter <simona@ffwll.ch>
+Thomas Zimmermann <tzimmermann@suse.de>

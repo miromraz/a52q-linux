@@ -1,0 +1,80 @@
+From 352fa854d425b9255c0bb3f8e1c582db156476d8 Mon Sep 17 00:00:00 2001
+From: Miroslav Mraz <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 16:56:31 +0200
+Subject: [PATCH v1 2/2] media: qcom: camss: Follow the enabled link when
+ finding the sensor
+
+camss_find_sensor_pad() walks the pipeline from a CAMSS entity towards
+the sensor, but at each hop it blindly takes pads[0] and its first
+remote pad. media_pad_remote_pad_first() only returns the remote of an
+enabled link, so this works for entities with a single sink pad but
+breaks on an intermediate entity that has several sink pads of which
+only one is enabled at a time - a video mux.
+
+On the a52q the ultra-wide and macro cameras share CSIPHY3 behind a
+video mux:
+
+  [gc5035_macro] -> [1|video-mux|2] -> [0|csiphy3|1] -> csid0 -> vfe0
+
+The ultra-wide sits on mux input 0, so pads[0] happens to resolve it
+and streaming works. The macro sits on input 1: camss_find_sensor_pad()
+still looks at the mux's pads[0] (input 0), whose link is disabled,
+gets NULL from media_pad_remote_pad_first() and returns NULL.
+camss_get_link_freq() then returns -ENODEV and csiphy_stream_on()
+aborts with
+
+  qcom-camss acb3000.isp: Cannot get CSI2 transmitter's link frequency
+
+so VIDIOC_STREAMON fails with -EINVAL. The WARN splat printed on the
+same stream-on just above that line is the "Unknown format" WARN(1) in
+csiphy_get_bpp(): it is the only WARN reachable in csiphy_stream_on()
+before the error and fires when the CSIPHY sink pad holds a format that
+is not in its table on the mis-resolved input.
+
+Resolve each hop through the enabled link instead, using
+media_entity_remote_source_pad_unique(), which scans all of the
+entity's sink pads and returns the single remote source reached over an
+enabled link - the same helper the CSI-2 receiver drivers use for mux
+inputs. For a single-sink-pad CAMSS entity the result is unchanged, so
+plain sensor pipelines and mux input 0 behave exactly as before.
+
+The s_stream pipeline walk in camss-video.c does not need the same
+change: it already stops at the first non-CAMSS subdev (the mux),
+handing everything upstream to the mux's own .s_stream(), so it never
+has to choose between the mux's sink pads.
+
+Signed-off-by: Miroslav Mraz <miroslav.mraz@techmania.cz>
+---
+ drivers/media/platform/qcom/camss/camss.c | 16 ++++++++++------
+ 1 file changed, 10 insertions(+), 6 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/qcom/camss/camss.c
+index 96ec66fa755d..bfe8076fc04b 100644
+--- a/drivers/media/platform/qcom/camss/camss.c
++++ b/drivers/media/platform/qcom/camss/camss.c
+@@ -4604,12 +4604,16 @@ struct media_pad *camss_find_sensor_pad(struct media_entity *entity)
+ 	struct media_pad *pad;
+ 
+ 	while (1) {
+-		pad = &entity->pads[0];
+-		if (!(pad->flags & MEDIA_PAD_FL_SINK))
+-			return NULL;
+-
+-		pad = media_pad_remote_pad_first(pad);
+-		if (!pad || !is_media_entity_v4l2_subdev(pad->entity))
++		/*
++		 * Follow the enabled sink link rather than pads[0]: an
++		 * intermediate entity such as a video mux has several sink pads
++		 * and only the one for the selected input is enabled, so keying
++		 * on pads[0] would miss the active sensor (and return NULL for
++		 * any input other than the first). For an entity with a single
++		 * sink pad this resolves to the same pad as before.
++		 */
++		pad = media_entity_remote_source_pad_unique(entity);
++		if (IS_ERR(pad) || !is_media_entity_v4l2_subdev(pad->entity))
+ 			return NULL;
+ 
+ 		entity = pad->entity;
+-- 
+2.55.0
+

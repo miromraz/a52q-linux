@@ -1,0 +1,4 @@
+# checkpatch.pl --strict (pinctrl-qcom-lpass)
+total: 0 errors, 0 warnings, 0 checks, 26 lines checked
+
+/home/realni/linux-a52q/upstream/pinctrl-qcom-lpass/v1-0001-dt-bindings-pinctrl-qcom-allow-sc7180-LPASS-LPI-T.patch has no obvious style problems and is ready for submission.

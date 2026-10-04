@@ -1,0 +1,13 @@
+# checkpatch.pl --strict (media-camss-fixes)
+------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-fixes/v1-0001-media-qcom-camss-Don-t-call-s_stream-twice-throug.patch
+------------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 81 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-fixes/v1-0001-media-qcom-camss-Don-t-call-s_stream-twice-throug.patch has no obvious style problems and is ready for submission.
+------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-fixes/v1-0002-media-qcom-camss-Follow-the-enabled-link-when-fin.patch
+------------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 22 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-fixes/v1-0002-media-qcom-camss-Follow-the-enabled-link-when-fin.patch has no obvious style problems and is ready for submission.

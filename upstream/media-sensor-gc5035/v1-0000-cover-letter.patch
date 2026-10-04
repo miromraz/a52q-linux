@@ -1,0 +1,40 @@
+From 2ae7fac9c1b422f5f99fd52874d8b8106864f27a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:40:54 +0200
+Subject: [PATCH v1 0/5] media: i2c: add Galaxycore GC5035 sensor driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Bring in Tomasz Figa's GC5035 driver (v4), add OTP handling, modernise
+it and add Samsung Galaxy A52 4G (a52q) depth/macro camera support.
+Original authorship of the imported patches is preserved.
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Hao He (2):
+  media: i2c: Add a driver for the Galaxycore GC5035 sensor
+  media: i2c: gc5035: Add OTP configuration handling
+
+Miroslav Mráz (2):
+  dt-bindings: media: gc5035: use mclk clock-name and add label
+  media: i2c: gc5035: modernise and add Galaxy A52 (a52q) support
+
+Tomasz Figa (1):
+  media: dt-bindings: media: i2c: Add bindings for GC5035
+
+ .../bindings/media/i2c/galaxycore,gc5035.yaml |  150 ++
+ MAINTAINERS                                   |    9 +
+ drivers/media/i2c/Kconfig                     |   13 +
+ drivers/media/i2c/Makefile                    |    1 +
+ drivers/media/i2c/gc5035.c                    | 2034 +++++++++++++++++
+ 5 files changed, 2207 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/media/i2c/galaxycore,gc5035.yaml
+ create mode 100644 drivers/media/i2c/gc5035.c
+
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

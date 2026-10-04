@@ -1,0 +1,14 @@
+# checkpatch.pl --strict (ak7374)
+--------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/ak7374/0001-dt-bindings-media-asahi-kasei-ak7375-add-AK7374.patch
+--------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 7 lines checked
+
+/home/realni/linux-a52q/upstream/ak7374/0001-dt-bindings-media-asahi-kasei-ak7375-add-AK7374.patch has no obvious style problems and is ready for submission.
+------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/ak7374/0002-media-i2c-ak7375-add-support-for-AK7374.patch
+------------------------------------------------------------------------------------------
+grep: warning: stray \ before -
+total: 0 errors, 0 warnings, 0 checks, 27 lines checked
+
+/home/realni/linux-a52q/upstream/ak7374/0002-media-i2c-ak7375-add-support-for-AK7374.patch has no obvious style problems and is ready for submission.

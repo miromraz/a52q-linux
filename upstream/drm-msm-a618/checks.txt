@@ -1,0 +1,14 @@
+# checkpatch.pl --strict (drm-msm-a618)
+CHECK: Lines should not end with a '('
+#67: FILE: drivers/gpu/drm/msm/adreno/a6xx_catalog.c:809:
++		.speedbins = ADRENO_SPEEDBINS(
+
+total: 0 errors, 0 warnings, 1 checks, 31 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/drm-msm-a618/v1-0001-drm-msm-adreno-add-SM7125-A618-speed-bin-159.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

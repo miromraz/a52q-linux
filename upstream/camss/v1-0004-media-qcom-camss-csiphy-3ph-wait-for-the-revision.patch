@@ -1,0 +1,89 @@
+From 71de98d01d91c6569484bd8c7385d5c782f0ad4e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Sat, 3 Oct 2026 13:07:51 +0200
+Subject: [PATCH v1 4/4] media: qcom: camss: csiphy-3ph: wait for the revision
+ id on cold power-up
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On the Galaxy A52 (sc7180) the first CSIPHY power-up of every libcamera
+session logs:
+
+  qcom-camss acb3000.isp: CSIPHY 3PH HW Version = 0x00000000
+
+while every later power-up in the same session reads the correct
+0x40010000. The difference is the CAMSS top GDSC: the first power-up
+brings it out of runtime suspend, and the block has only just been
+clocked when the revision id is read. SHOW_REV_ID latches the revision
+into the common status registers with a short propagation delay, so
+reading them immediately (readl_relaxed right after the write) returns 0
+on the cold path; a warm block has already settled.
+
+Poll the status registers until they report a non-zero version (bounded
+to ~2 ms). This reports the real revision and, more importantly, confirms
+the CSIPHY is powered and clocked before csiphy_lanes_enable() programs
+it.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../qcom/camss/camss-csiphy-3ph-1-0.c         | 39 +++++++++++++------
+ 1 file changed, 27 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c b/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
+index e3d6a6ce2182..f764aefc3b1e 100644
+--- a/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
++++ b/drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c
+@@ -1250,22 +1250,37 @@ static void csiphy_hw_version_read(struct csiphy_device *csiphy,
+ {
+ 	struct csiphy_device_regs *regs = csiphy->regs;
+ 	u32 hw_version;
++	int i;
+ 
+ 	writel(CSIPHY_3PH_CMN_CSI_COMMON_CTRL6_SHOW_REV_ID, csiphy->base +
+ 	       CSIPHY_3PH_CMN_CSI_COMMON_CTRLn(regs->offset, 6));
+ 
+-	hw_version = readl_relaxed(csiphy->base +
+-		CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset,
+-						  regs->common_status_offset, 12));
+-	hw_version |= readl_relaxed(csiphy->base +
+-		CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset,
+-						  regs->common_status_offset, 13)) << 8;
+-	hw_version |= readl_relaxed(csiphy->base +
+-		CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset,
+-						  regs->common_status_offset, 14)) << 16;
+-	hw_version |= readl_relaxed(csiphy->base +
+-		CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset,
+-						  regs->common_status_offset, 15)) << 24;
++	/*
++	 * On the first power-up after the CAMSS top GDSC has been off, the
++	 * block has only just been clocked and the revision id is not latched
++	 * into the common status registers the instant SHOW_REV_ID is written,
++	 * so the read returns 0. Poll until it reports the real version; this
++	 * also confirms the CSIPHY is actually powered and clocked before
++	 * lanes_enable() starts programming it.
++	 */
++	for (i = 0; i < 10; i++) {
++		hw_version = readl_relaxed(csiphy->base +
++			CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset,
++							  regs->common_status_offset, 12));
++		hw_version |= readl_relaxed(csiphy->base +
++			CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset,
++							  regs->common_status_offset, 13)) << 8;
++		hw_version |= readl_relaxed(csiphy->base +
++			CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset,
++							  regs->common_status_offset, 14)) << 16;
++		hw_version |= readl_relaxed(csiphy->base +
++			CSIPHY_3PH_CMN_CSI_COMMON_STATUSn(regs->offset,
++							  regs->common_status_offset, 15)) << 24;
++		if (hw_version)
++			break;
++
++		usleep_range(100, 200);
++	}
+ 
+ 	dev_dbg(dev, "CSIPHY 3PH HW Version = 0x%08x\n", hw_version);
+ }
+-- 
+2.55.0
+

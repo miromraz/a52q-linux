@@ -1,0 +1,2 @@
+# checkpatch.pl --strict (qrtr)
+clean

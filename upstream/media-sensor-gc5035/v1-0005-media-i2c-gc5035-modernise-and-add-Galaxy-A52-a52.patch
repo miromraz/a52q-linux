@@ -1,0 +1,541 @@
+From 2ae7fac9c1b422f5f99fd52874d8b8106864f27a Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 05:01:53 +0200
+Subject: [PATCH v1 5/5] media: i2c: gc5035: modernise and add Galaxy A52
+ (a52q) support
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Bring the carried-over GC5035 driver up to the current V4L2 sub-device
+API and add what the Samsung Galaxy A52 4G (a52q, SM7125) needs for its
+macro and depth cameras:
+
+ - switch the pad ops to the subdev active state (v4l2_subdev_state,
+   init_state/internal_ops) and the modern probe API (probe, void
+   remove, v4l2_async_register_subdev_sensor), arming runtime PM before
+   the subdev is registered;
+ - parse fwnode device properties (orientation, rotation) and expose
+   V4L2_SEL_TGT_CROP / NATIVE_SIZE through get_selection;
+ - replace the separate analogue/digital gain controls with a single
+   V4L2_CID_ANALOGUE_GAIN mapped through an analogue-step LUT plus a
+   fine pre-gain, matching the vendor gain split;
+ - make the pwdn GPIO optional and honour a DT "label" so boards with
+   more than one GC5035 (a52q has two) get distinct entity names for
+   per-module tuning;
+ - correct the analog supply name to avdd28 to match the binding.
+
+Update Kconfig for the current VIDEO_DEV symbol and use
+MODULE_LICENSE("GPL").
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/media/i2c/Kconfig  |   2 +-
+ drivers/media/i2c/gc5035.c | 210 ++++++++++++++++++++++++-------------
+ 2 files changed, 137 insertions(+), 75 deletions(-)
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index e02d6c88f255..1d6c23740bbc 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -112,7 +112,7 @@ config VIDEO_GC2145
+ 
+ config VIDEO_GC5035
+ 	tristate "Galaxycore GC5035 sensor support"
+-	depends on I2C && VIDEO_V4L2
++	depends on I2C && VIDEO_DEV
+ 	select MEDIA_CONTROLLER
+ 	select V4L2_FWNODE
+ 	select VIDEO_V4L2_SUBDEV_API
+diff --git a/drivers/media/i2c/gc5035.c b/drivers/media/i2c/gc5035.c
+index 61645cec6948..acb660ae3070 100644
+--- a/drivers/media/i2c/gc5035.c
++++ b/drivers/media/i2c/gc5035.c
+@@ -43,25 +43,21 @@
+ #define GC5035_REG_EXPOSURE_L				0x04
+ #define GC5035_EXPOSURE_H_MASK				0x3f
+ #define GC5035_EXPOSURE_MIN				4
+-#define GC5035_EXPOSURE_STEP				1
++#define GC5035_EXPOSURE_STEP				4
+ 
+-/* Analog gain control */
++/*
++ * Gain control. V4L2_CID_ANALOGUE_GAIN is the total sensor gain in 1/256
++ * units: the largest analogue step (0xb6, see gc5035_again_lut) not above the
++ * request, times a fine pre-gain (0xb1[3:0].0xb2[7:2], 1/64 steps) for the
++ * remainder. Same split as the stock com.samsung.sensor.gc5035.so.
++ */
+ #define GC5035_REG_ANALOG_GAIN				0xb6
+-#define GC5035_ANALOG_GAIN_MIN				0
+-#define GC5035_ANALOG_GAIN_MAX				31
+-#define GC5035_ANALOG_GAIN_STEP				1
+-#define GC5035_ANALOG_GAIN_DEFAULT			GC5035_ANALOG_GAIN_MIN
+-
+-/* Digital gain control */
+-#define GC5035_REG_DIGI_GAIN_H				0xb1
+-#define GC5035_REG_DIGI_GAIN_L				0xb2
+-#define GC5035_DGAIN_H_MASK				0x0f
+-#define GC5035_DGAIN_L_MASK				0xfc
+-#define GC5035_DGAIN_L_SHIFT				2
+-#define GC5035_DIGI_GAIN_MIN				0
+-#define GC5035_DIGI_GAIN_MAX				1023
+-#define GC5035_DIGI_GAIN_STEP				1
+-#define GC5035_DIGI_GAIN_DEFAULT			GC5035_DIGI_GAIN_MAX
++#define GC5035_REG_PREGAIN_H				0xb1
++#define GC5035_REG_PREGAIN_L				0xb2
++#define GC5035_GAIN_UNIT				256
++#define GC5035_GAIN_MIN					GC5035_GAIN_UNIT
++/* Stock AEC exposure table tops out at 48x */
++#define GC5035_GAIN_MAX					(48 * GC5035_GAIN_UNIT)
+ 
+ /* Vblank control */
+ #define GC5035_REG_VTS_H				0x41
+@@ -138,7 +134,7 @@ static const char * const gc5035_supplies[] = {
+ 	 * "iovdd",	 * Power supply for I/O circuits *
+ 	 */
+ 	"dvdd12",	/* Digital core power */
+-	"avdd21",	/* Analog power */
++	"avdd28",	/* Analog power */
+ };
+ 
+ struct gc5035_regval {
+@@ -168,6 +164,7 @@ struct gc5035_mode {
+ 	u32 hts_def;
+ 	u32 vts_def;
+ 	u32 exp_def;
++	struct v4l2_rect crop;		/* in the 2592x1944 pixel array */
+ 	const struct gc5035_regval *reg_list;
+ 	size_t num_regs;
+ };
+@@ -207,6 +204,17 @@ static inline struct gc5035 *to_gc5035(struct v4l2_subdev *sd)
+ 	return container_of(sd, struct gc5035, subdev);
+ }
+ 
++/* Analogue gain steps: register 0xb6 value and gain x256 (1.0 .. 12.96) */
++static const struct {
++	u8 reg;
++	u16 gain;
++} gc5035_again_lut[] = {
++	{ 0x00,  256 }, { 0x01,  302 }, { 0x02,  358 }, { 0x03,  425 },
++	{ 0x08,  502 }, { 0x09,  599 }, { 0x0a,  717 }, { 0x0b,  845 },
++	{ 0x0c,  998 }, { 0x0d, 1203 }, { 0x0e, 1434 }, { 0x0f, 1710 },
++	{ 0x10, 1997 }, { 0x11, 2355 }, { 0x12, 2816 }, { 0x13, 3318 },
++};
++
+ static const struct gc5035_regval gc5035_otp_init_regs[] = {
+ 	{0xfc, 0x01},
+ 	{0xf4, 0x40},
+@@ -812,6 +820,11 @@ static const struct gc5035_regval gc5035_1280x720_regs[] = {
+ 	{0x3e, 0x91},
+ };
+ 
++/*
++ * All modes read the full 1960-row analogue window (0x0d/0x0e), binning and
++ * cropping happen afterwards, so every mode has the 2920-pixel line of the
++ * full mode and cannot go below ~2000 lines per frame (measured: 29.9 fps).
++ */
+ static const struct gc5035_mode gc5035_modes[] = {
+ 	{
+ 		.width = 2592,
+@@ -820,6 +833,7 @@ static const struct gc5035_mode gc5035_modes[] = {
+ 		.exp_def = 0x258,
+ 		.hts_def = 2920,
+ 		.vts_def = 2008,
++		.crop = { 0, 0, 2592, 1944 },
+ 		.reg_list = gc5035_2592x1944_regs,
+ 		.num_regs = ARRAY_SIZE(gc5035_2592x1944_regs),
+ 	},
+@@ -828,18 +842,21 @@ static const struct gc5035_mode gc5035_modes[] = {
+ 		.height = 972,
+ 		.max_fps = 30,
+ 		.exp_def = 0x258,
+-		.hts_def = 1460,
++		.hts_def = 2920,
+ 		.vts_def = 2008,
++		.crop = { 0, 0, 2592, 1944 },
+ 		.reg_list = gc5035_1296x972_regs,
+ 		.num_regs = ARRAY_SIZE(gc5035_1296x972_regs),
+ 	},
+ 	{
+ 		.width = 1280,
+ 		.height = 720,
+-		.max_fps = 60,
++		.max_fps = 30,
+ 		.exp_def = 0x258,
+-		.hts_def = 1896,
+-		.vts_def = 1536,
++		.hts_def = 2920,
++		.vts_def = 2008,
++		/* binned window starts at (11, 10) */
++		.crop = { 22, 20, 2560, 1440 },
+ 		.reg_list = gc5035_1280x720_regs,
+ 		.num_regs = ARRAY_SIZE(gc5035_1280x720_regs),
+ 	},
+@@ -1121,8 +1138,8 @@ static int gc5035_otp_update_dd(struct gc5035 *gc5035)
+ 
+ 	/* Wait for DD to finish loading automatically */
+ 	ret = readx_poll_timeout(gc5035_check_dd_load_status, gc5035,
+-				val, val <= 0, GC5035_DD_DELAY_US,
+-				GC5035_DD_TIMEOUT_US);
++				 val, val <= 0, GC5035_DD_DELAY_US,
++				 GC5035_DD_TIMEOUT_US);
+ 	if (ret < 0) {
+ 		dev_err(dev, "DD load timeout\n");
+ 		return -EFAULT;
+@@ -1238,7 +1255,7 @@ static int gc5035_set_otp_config(struct gc5035 *gc5035)
+ }
+ 
+ static int gc5035_set_fmt(struct v4l2_subdev *sd,
+-			  struct v4l2_subdev_pad_config *cfg,
++			  struct v4l2_subdev_state *sd_state,
+ 			  struct v4l2_subdev_format *fmt)
+ {
+ 	struct gc5035 *gc5035 = to_gc5035(sd);
+@@ -1257,7 +1274,7 @@ static int gc5035_set_fmt(struct v4l2_subdev *sd,
+ 
+ 	mutex_lock(&gc5035->mutex);
+ 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
+-		*v4l2_subdev_get_try_format(sd, cfg, fmt->pad) = fmt->format;
++		*v4l2_subdev_state_get_format(sd_state, fmt->pad) = fmt->format;
+ 	} else {
+ 		gc5035->cur_mode = mode;
+ 		h_blank = mode->hts_def - mode->width;
+@@ -1266,7 +1283,9 @@ static int gc5035_set_fmt(struct v4l2_subdev *sd,
+ 		vblank_def = round_up(mode->vts_def, 4) - mode->height;
+ 		__v4l2_ctrl_modify_range(gc5035->vblank, vblank_def,
+ 					 GC5035_VTS_MAX - mode->height,
+-					 1, vblank_def);
++					 4, vblank_def);
++		/* don't carry the previous mode's frame length over */
++		__v4l2_ctrl_s_ctrl(gc5035->vblank, vblank_def);
+ 	}
+ 	mutex_unlock(&gc5035->mutex);
+ 
+@@ -1274,7 +1293,7 @@ static int gc5035_set_fmt(struct v4l2_subdev *sd,
+ }
+ 
+ static int gc5035_get_fmt(struct v4l2_subdev *sd,
+-			  struct v4l2_subdev_pad_config *cfg,
++			  struct v4l2_subdev_state *sd_state,
+ 			  struct v4l2_subdev_format *fmt)
+ {
+ 	struct gc5035 *gc5035 = to_gc5035(sd);
+@@ -1282,7 +1301,7 @@ static int gc5035_get_fmt(struct v4l2_subdev *sd,
+ 
+ 	mutex_lock(&gc5035->mutex);
+ 	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
+-		fmt->format = *v4l2_subdev_get_try_format(sd, cfg, fmt->pad);
++		fmt->format = *v4l2_subdev_state_get_format(sd_state, fmt->pad);
+ 	} else {
+ 		fmt->format.width = mode->width;
+ 		fmt->format.height = mode->height;
+@@ -1295,7 +1314,7 @@ static int gc5035_get_fmt(struct v4l2_subdev *sd,
+ }
+ 
+ static int gc5035_enum_mbus_code(struct v4l2_subdev *sd,
+-				 struct v4l2_subdev_pad_config *cfg,
++				 struct v4l2_subdev_state *sd_state,
+ 				 struct v4l2_subdev_mbus_code_enum *code)
+ {
+ 	if (code->index != 0)
+@@ -1307,7 +1326,7 @@ static int gc5035_enum_mbus_code(struct v4l2_subdev *sd,
+ }
+ 
+ static int gc5035_enum_frame_sizes(struct v4l2_subdev *sd,
+-				   struct v4l2_subdev_pad_config *cfg,
++				   struct v4l2_subdev_state *sd_state,
+ 				   struct v4l2_subdev_frame_size_enum *fse)
+ {
+ 	if (fse->index >= ARRAY_SIZE(gc5035_modes))
+@@ -1324,6 +1343,35 @@ static int gc5035_enum_frame_sizes(struct v4l2_subdev *sd,
+ 	return 0;
+ }
+ 
++static int gc5035_get_selection(struct v4l2_subdev *sd,
++				struct v4l2_subdev_state *sd_state,
++				struct v4l2_subdev_selection *sel)
++{
++	struct gc5035 *gc5035 = to_gc5035(sd);
++	const struct gc5035_mode *mode = gc5035->cur_mode;
++	const struct v4l2_mbus_framefmt *fmt;
++
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++		if (sel->which == V4L2_SUBDEV_FORMAT_TRY) {
++			fmt = v4l2_subdev_state_get_format(sd_state, sel->pad);
++			mode = v4l2_find_nearest_size(gc5035_modes,
++						      ARRAY_SIZE(gc5035_modes),
++						      width, height,
++						      fmt->width, fmt->height);
++		}
++		sel->r = mode->crop;
++		return 0;
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r = gc5035_modes[0].crop;
++		return 0;
++	default:
++		return -EINVAL;
++	}
++}
++
+ static int __gc5035_start_stream(struct gc5035 *gc5035)
+ {
+ 	int ret;
+@@ -1476,8 +1524,8 @@ static int gc5035_runtime_suspend(struct device *dev)
+ 	return 0;
+ }
+ 
+-static int gc5035_entity_init_cfg(struct v4l2_subdev *subdev,
+-				struct v4l2_subdev_pad_config *cfg)
++static int gc5035_init_state(struct v4l2_subdev *subdev,
++			     struct v4l2_subdev_state *sd_state)
+ {
+ 	struct v4l2_subdev_format fmt = {
+ 		.which = V4L2_SUBDEV_FORMAT_TRY,
+@@ -1487,7 +1535,7 @@ static int gc5035_entity_init_cfg(struct v4l2_subdev *subdev,
+ 		}
+ 	};
+ 
+-	gc5035_set_fmt(subdev, cfg, &fmt);
++	gc5035_set_fmt(subdev, sd_state, &fmt);
+ 
+ 	return 0;
+ }
+@@ -1504,11 +1552,11 @@ static const struct v4l2_subdev_video_ops gc5035_video_ops = {
+ };
+ 
+ static const struct v4l2_subdev_pad_ops gc5035_pad_ops = {
+-	.init_cfg = gc5035_entity_init_cfg,
+ 	.enum_mbus_code = gc5035_enum_mbus_code,
+ 	.enum_frame_size = gc5035_enum_frame_sizes,
+ 	.get_fmt = gc5035_get_fmt,
+ 	.set_fmt = gc5035_set_fmt,
++	.get_selection = gc5035_get_selection,
+ };
+ 
+ static const struct v4l2_subdev_ops gc5035_subdev_ops = {
+@@ -1516,6 +1564,10 @@ static const struct v4l2_subdev_ops gc5035_subdev_ops = {
+ 	.pad	= &gc5035_pad_ops,
+ };
+ 
++static const struct v4l2_subdev_internal_ops gc5035_internal_ops = {
++	.init_state = gc5035_init_state,
++};
++
+ static const struct media_entity_operations gc5035_subdev_entity_ops = {
+ 	.link_validate = v4l2_subdev_link_validate,
+ };
+@@ -1536,33 +1588,31 @@ static int gc5035_set_exposure(struct gc5035 *gc5035, int val)
+ 	return gc5035_write_reg(gc5035, GC5035_REG_EXPOSURE_L, val & 0xff);
+ }
+ 
+-static int gc5035_set_analogue_gain(struct gc5035 *gc5035, int val)
++static int gc5035_set_analogue_gain(struct gc5035 *gc5035, u32 val)
+ {
++	unsigned int i = ARRAY_SIZE(gc5035_again_lut) - 1;
++	u32 fine;
+ 	int ret;
+ 
++	while (i && gc5035_again_lut[i].gain > val)
++		i--;
++	/* <= 48x / 12.96x, so the pre-gain stays below the 4-bit integer limit */
++	fine = val * GC5035_GAIN_UNIT / gc5035_again_lut[i].gain;
++
+ 	ret = gc5035_write_reg(gc5035, GC5035_PAGE_REG, 0);
+ 	if (ret)
+ 		return ret;
+ 
+-	return gc5035_write_reg(gc5035, GC5035_REG_ANALOG_GAIN, val);
+-}
+-
+-static int gc5035_set_digital_gain(struct gc5035 *gc5035, int val)
+-{
+-	int ret;
+-
+-	ret = gc5035_write_reg(gc5035, GC5035_PAGE_REG, 0);
++	ret = gc5035_write_reg(gc5035, GC5035_REG_ANALOG_GAIN,
++			       gc5035_again_lut[i].reg);
+ 	if (ret)
+ 		return ret;
+ 
+-	ret = gc5035_write_reg(gc5035, GC5035_REG_DIGI_GAIN_H,
+-			       (val >> 8) & GC5035_DGAIN_H_MASK);
++	ret = gc5035_write_reg(gc5035, GC5035_REG_PREGAIN_H, fine >> 8);
+ 	if (ret)
+ 		return ret;
+ 
+-	return gc5035_write_reg(gc5035, GC5035_REG_DIGI_GAIN_L,
+-				(val << GC5035_DGAIN_L_SHIFT)
+-				& GC5035_DGAIN_L_MASK);
++	return gc5035_write_reg(gc5035, GC5035_REG_PREGAIN_L, fine & 0xfc);
+ }
+ 
+ static int gc5035_set_vblank(struct gc5035 *gc5035, int val)
+@@ -1635,9 +1685,6 @@ static int gc5035_set_ctrl(struct v4l2_ctrl *ctrl)
+ 	case V4L2_CID_ANALOGUE_GAIN:
+ 		ret = gc5035_set_analogue_gain(gc5035, ctrl->val);
+ 		break;
+-	case V4L2_CID_DIGITAL_GAIN:
+-		ret = gc5035_set_digital_gain(gc5035, ctrl->val);
+-		break;
+ 	case V4L2_CID_VBLANK:
+ 		ret = gc5035_set_vblank(gc5035, ctrl->val);
+ 		break;
+@@ -1661,6 +1708,7 @@ static const struct v4l2_ctrl_ops gc5035_ctrl_ops = {
+ static int gc5035_initialize_controls(struct gc5035 *gc5035)
+ {
+ 	const struct gc5035_mode *mode;
++	struct v4l2_fwnode_device_properties props;
+ 	struct v4l2_ctrl_handler *handler;
+ 	struct v4l2_ctrl *ctrl;
+ 	u64 exposure_max, pixel_rate;
+@@ -1669,7 +1717,11 @@ static int gc5035_initialize_controls(struct gc5035 *gc5035)
+ 
+ 	handler = &gc5035->ctrl_handler;
+ 	mode = gc5035->cur_mode;
+-	ret = v4l2_ctrl_handler_init(handler, 8);
++	ret = v4l2_fwnode_device_parse(&gc5035->client->dev, &props);
++	if (ret)
++		return ret;
++
++	ret = v4l2_ctrl_handler_init(handler, 10);
+ 	if (ret)
+ 		return ret;
+ 
+@@ -1704,18 +1756,15 @@ static int gc5035_initialize_controls(struct gc5035 *gc5035)
+ 					     mode->exp_def);
+ 
+ 	v4l2_ctrl_new_std(handler, &gc5035_ctrl_ops, V4L2_CID_ANALOGUE_GAIN,
+-			  GC5035_ANALOG_GAIN_MIN, GC5035_ANALOG_GAIN_MAX,
+-			  GC5035_ANALOG_GAIN_STEP, GC5035_ANALOG_GAIN_DEFAULT);
+-
+-	v4l2_ctrl_new_std(handler, &gc5035_ctrl_ops, V4L2_CID_DIGITAL_GAIN,
+-			  GC5035_DIGI_GAIN_MIN, GC5035_DIGI_GAIN_MAX,
+-			  GC5035_DIGI_GAIN_STEP, GC5035_DIGI_GAIN_DEFAULT);
++			  GC5035_GAIN_MIN, GC5035_GAIN_MAX, 1, GC5035_GAIN_MIN);
+ 
+ 	v4l2_ctrl_new_std_menu_items(handler, &gc5035_ctrl_ops,
+ 				     V4L2_CID_TEST_PATTERN,
+ 				     ARRAY_SIZE(gc5035_test_pattern_menu) - 1,
+ 				     0, 0, gc5035_test_pattern_menu);
+ 
++	v4l2_ctrl_new_fwnode_properties(handler, &gc5035_ctrl_ops, &props);
++
+ 	if (handler->error) {
+ 		ret = handler->error;
+ 		dev_err(&gc5035->client->dev,
+@@ -1815,6 +1864,7 @@ static int gc5035_get_hwcfg(struct gc5035 *gc5035)
+ 
+ static int gc5035_probe(struct i2c_client *client)
+ {
++	const char *label;
+ 	struct device *dev = &client->dev;
+ 	struct gc5035 *gc5035;
+ 	struct v4l2_subdev *sd;
+@@ -1851,7 +1901,7 @@ static int gc5035_probe(struct i2c_client *client)
+ 		dev_warn(dev, "mclk rate set to %lu instead of requested %u\n",
+ 			 gc5035->mclk_rate, freq);
+ 
+-	gc5035->pwdn_gpio = devm_gpiod_get(dev, "pwdn", GPIOD_OUT_HIGH);
++	gc5035->pwdn_gpio = devm_gpiod_get_optional(dev, "pwdn", GPIOD_OUT_HIGH);
+ 	if (IS_ERR(gc5035->pwdn_gpio))
+ 		return dev_err_probe(dev, PTR_ERR(gc5035->pwdn_gpio),
+ 				     "Failed to get pwdn-gpios\n");
+@@ -1869,8 +1919,8 @@ static int gc5035_probe(struct i2c_client *client)
+ 	for (i = 0; i < ARRAY_SIZE(gc5035_supplies); i++)
+ 		gc5035->supplies[i].supply = gc5035_supplies[i];
+ 	ret = devm_regulator_bulk_get(&gc5035->client->dev,
+-				       ARRAY_SIZE(gc5035_supplies),
+-				       gc5035->supplies);
++				      ARRAY_SIZE(gc5035_supplies),
++				      gc5035->supplies);
+ 	if (ret)
+ 		return dev_err_probe(dev, ret, "Failed to get regulators\n");
+ 
+@@ -1878,6 +1928,14 @@ static int gc5035_probe(struct i2c_client *client)
+ 
+ 	sd = &gc5035->subdev;
+ 	v4l2_i2c_subdev_init(sd, client, &gc5035_subdev_ops);
++	/*
++	 * Boards can carry several GC5035 modules with different optics and
++	 * tuning. Userspace (libcamera) derives the sensor model, and so the
++	 * tuning file, from the entity name, so let DT "label" rename it.
++	 */
++	if (!device_property_read_string(dev, "label", &label))
++		v4l2_i2c_subdev_set_name(sd, client, label, NULL);
++	sd->internal_ops = &gc5035_internal_ops;
+ 
+ 	ret = gc5035_initialize_controls(gc5035);
+ 	if (ret) {
+@@ -1907,20 +1965,26 @@ static int gc5035_probe(struct i2c_client *client)
+ 		goto err_power_off;
+ 	}
+ 
+-	ret = v4l2_async_register_subdev_sensor_common(sd);
+-	if (ret) {
+-		dev_err_probe(dev, ret, "v4l2 async register subdev failed\n");
+-		goto err_clean_entity;
+-	}
+-
++	/* arm runtime PM before a consumer can bind */
+ 	pm_runtime_set_active(dev);
+ 	pm_runtime_enable(dev);
+ 	pm_runtime_idle(dev);
+ 
++	ret = v4l2_async_register_subdev_sensor(sd);
++	if (ret) {
++		dev_err_probe(dev, ret, "v4l2 async register subdev failed\n");
++		goto err_disable_pm;
++	}
++
+ 	return 0;
+ 
+-err_clean_entity:
++err_disable_pm:
++	pm_runtime_disable(dev);
++	if (!pm_runtime_status_suspended(dev))
++		gc5035_runtime_suspend(dev);
++	pm_runtime_set_suspended(dev);
+ 	media_entity_cleanup(&sd->entity);
++	goto err_free_handler;
+ err_power_off:
+ 	gc5035_runtime_suspend(dev);
+ err_free_handler:
+@@ -1931,7 +1995,7 @@ static int gc5035_probe(struct i2c_client *client)
+ 	return ret;
+ }
+ 
+-static int gc5035_remove(struct i2c_client *client)
++static void gc5035_remove(struct i2c_client *client)
+ {
+ 	struct v4l2_subdev *sd = i2c_get_clientdata(client);
+ 	struct gc5035 *gc5035 = to_gc5035(sd);
+@@ -1944,8 +2008,6 @@ static int gc5035_remove(struct i2c_client *client)
+ 	if (!pm_runtime_status_suspended(&client->dev))
+ 		gc5035_runtime_suspend(&client->dev);
+ 	pm_runtime_set_suspended(&client->dev);
+-
+-	return 0;
+ }
+ 
+ static const struct of_device_id gc5035_of_match[] = {
+@@ -1960,7 +2022,7 @@ static struct i2c_driver gc5035_i2c_driver = {
+ 		.pm = &gc5035_pm_ops,
+ 		.of_match_table = gc5035_of_match,
+ 	},
+-	.probe_new	= &gc5035_probe,
++	.probe		= &gc5035_probe,
+ 	.remove		= &gc5035_remove,
+ };
+ module_i2c_driver(gc5035_i2c_driver);
+@@ -1969,4 +2031,4 @@ MODULE_AUTHOR("Hao He <hao.he@bitland.com.cn>");
+ MODULE_AUTHOR("Xingyu Wu <wuxy@bitland.com.cn>");
+ MODULE_AUTHOR("Tomasz Figa <tfiga@chromium.org>");
+ MODULE_DESCRIPTION("GalaxyCore gc5035 sensor driver");
+-MODULE_LICENSE("GPL v2");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

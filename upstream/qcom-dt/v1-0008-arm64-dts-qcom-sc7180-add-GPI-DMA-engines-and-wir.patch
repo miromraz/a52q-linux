@@ -1,0 +1,288 @@
+From 94596d413d5c94ec1f6b5a23bad7b4ff2c909c04 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:32:03 +0200
+Subject: [PATCH v1 08/22] arm64: dts: qcom: sc7180: add GPI DMA engines and
+ wire up QUP
+
+Add the two GPI DMA controllers present in the QUPv3 wrappers and wire
+their tx/rx channels to every geni I2C and SPI SE. Without them the geni
+drivers fall back to FIFO mode after logging "Failed to get tx DMA ch"
+for each SE at boot.
+
+The controllers use the qcom,sm6350-gpi-dma programming model (SC7180 and
+SM6350/SM7125 share the same GPI hardware); the register windows, IRQs,
+channel masks and SMMU stream IDs match the wrapper layout.
+
+---
+ arch/arm64/boot/dts/qcom/sc7180.dtsi | 101 +++++++++++++++++++++++++++
+ 1 file changed, 101 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sc7180.dtsi b/arch/arm64/boot/dts/qcom/sc7180.dtsi
+index 70fbfb31d4a4..51e637559447 100644
+--- a/arch/arm64/boot/dts/qcom/sc7180.dtsi
++++ b/arch/arm64/boot/dts/qcom/sc7180.dtsi
+@@ -12,6 +12,7 @@
+ #include <dt-bindings/clock/qcom,lpasscorecc-sc7180.h>
+ #include <dt-bindings/clock/qcom,rpmh.h>
+ #include <dt-bindings/clock/qcom,videocc-sc7180.h>
++#include <dt-bindings/dma/qcom-gpi.h>
+ #include <dt-bindings/firmware/qcom,scm.h>
+ #include <dt-bindings/interconnect/qcom,icc.h>
+ #include <dt-bindings/interconnect/qcom,osm-l3.h>
+@@ -873,6 +874,26 @@ opp-384000000 {
+ 			};
+ 		};
+ 
++		gpi_dma0: dma-controller@800000 {
++			compatible = "qcom,sm6350-gpi-dma";
++			reg = <0 0x00800000 0 0x60000>;
++			interrupts = <GIC_SPI 244 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 245 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 246 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 247 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 248 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 249 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 250 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 251 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 252 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 253 IRQ_TYPE_LEVEL_HIGH>;
++			dma-channels = <10>;
++			dma-channel-mask = <0x1f>;
++			iommus = <&apps_smmu 0x56 0x0>;
++			#dma-cells = <3>;
++			status = "disabled";
++		};
++
+ 		qupv3_id_0: geniqup@8c0000 {
+ 			compatible = "qcom,geni-se-qup";
+ 			reg = <0 0x008c0000 0 0x6000>;
+@@ -893,6 +914,9 @@ i2c0: i2c@880000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c0_default>;
+ 				interrupts = <GIC_SPI 601 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 0 QCOM_GPI_I2C>,
++				       <&gpi_dma0 1 0 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_0 0 &qup_virt SLAVE_QUP_CORE_0 0>,
+@@ -913,6 +937,9 @@ spi0: spi@880000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_spi0_spi>, <&qup_spi0_cs>;
+ 				interrupts = <GIC_SPI 601 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 0 QCOM_GPI_SPI>,
++				       <&gpi_dma0 1 0 QCOM_GPI_SPI>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				power-domains = <&rpmhpd SC7180_CX>;
+@@ -947,6 +974,9 @@ i2c1: i2c@884000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c1_default>;
+ 				interrupts = <GIC_SPI 602 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 1 QCOM_GPI_I2C>,
++				       <&gpi_dma0 1 1 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_0 0 &qup_virt SLAVE_QUP_CORE_0 0>,
+@@ -967,6 +997,9 @@ spi1: spi@884000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_spi1_spi>, <&qup_spi1_cs>;
+ 				interrupts = <GIC_SPI 602 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 1 QCOM_GPI_SPI>,
++				       <&gpi_dma0 1 1 QCOM_GPI_SPI>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				power-domains = <&rpmhpd SC7180_CX>;
+@@ -1001,6 +1034,9 @@ i2c2: i2c@888000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c2_default>;
+ 				interrupts = <GIC_SPI 603 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 2 QCOM_GPI_I2C>,
++				       <&gpi_dma0 1 2 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_0 0 &qup_virt SLAVE_QUP_CORE_0 0>,
+@@ -1037,6 +1073,9 @@ i2c3: i2c@88c000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c3_default>;
+ 				interrupts = <GIC_SPI 604 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 3 QCOM_GPI_I2C>,
++				       <&gpi_dma0 1 3 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_0 0 &qup_virt SLAVE_QUP_CORE_0 0>,
+@@ -1057,6 +1096,9 @@ spi3: spi@88c000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_spi3_spi>, <&qup_spi3_cs>;
+ 				interrupts = <GIC_SPI 604 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 3 QCOM_GPI_SPI>,
++				       <&gpi_dma0 1 3 QCOM_GPI_SPI>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				power-domains = <&rpmhpd SC7180_CX>;
+@@ -1091,6 +1133,9 @@ i2c4: i2c@890000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c4_default>;
+ 				interrupts = <GIC_SPI 605 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 4 QCOM_GPI_I2C>,
++				       <&gpi_dma0 1 4 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_0 0 &qup_virt SLAVE_QUP_CORE_0 0>,
+@@ -1127,6 +1172,9 @@ i2c5: i2c@894000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c5_default>;
+ 				interrupts = <GIC_SPI 606 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 5 QCOM_GPI_I2C>,
++				       <&gpi_dma0 1 5 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_0 0 &qup_virt SLAVE_QUP_CORE_0 0>,
+@@ -1147,6 +1195,9 @@ spi5: spi@894000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_spi5_spi>, <&qup_spi5_cs>;
+ 				interrupts = <GIC_SPI 606 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma0 0 5 QCOM_GPI_SPI>,
++				       <&gpi_dma0 1 5 QCOM_GPI_SPI>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				power-domains = <&rpmhpd SC7180_CX>;
+@@ -1174,6 +1225,26 @@ uart5: serial@894000 {
+ 			};
+ 		};
+ 
++		gpi_dma1: dma-controller@a00000 {
++			compatible = "qcom,sm6350-gpi-dma";
++			reg = <0 0x00a00000 0 0x60000>;
++			interrupts = <GIC_SPI 645 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 646 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 647 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 648 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 649 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 650 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 651 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 652 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 653 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 654 IRQ_TYPE_LEVEL_HIGH>;
++			dma-channels = <10>;
++			dma-channel-mask = <0x3f>;
++			iommus = <&apps_smmu 0x4d6 0x0>;
++			#dma-cells = <3>;
++			status = "disabled";
++		};
++
+ 		qupv3_id_1: geniqup@ac0000 {
+ 			compatible = "qcom,geni-se-qup";
+ 			reg = <0 0x00ac0000 0 0x6000>;
+@@ -1194,6 +1265,9 @@ i2c6: i2c@a80000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c6_default>;
+ 				interrupts = <GIC_SPI 353 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 0 QCOM_GPI_I2C>,
++				       <&gpi_dma1 1 0 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_1 0 &qup_virt SLAVE_QUP_CORE_1 0>,
+@@ -1214,6 +1288,9 @@ spi6: spi@a80000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_spi6_spi>, <&qup_spi6_cs>;
+ 				interrupts = <GIC_SPI 353 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 0 QCOM_GPI_SPI>,
++				       <&gpi_dma1 1 0 QCOM_GPI_SPI>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				power-domains = <&rpmhpd SC7180_CX>;
+@@ -1248,6 +1325,9 @@ i2c7: i2c@a84000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c7_default>;
+ 				interrupts = <GIC_SPI 354 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 1 QCOM_GPI_I2C>,
++				       <&gpi_dma1 1 1 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_1 0 &qup_virt SLAVE_QUP_CORE_1 0>,
+@@ -1284,6 +1364,9 @@ i2c8: i2c@a88000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c8_default>;
+ 				interrupts = <GIC_SPI 355 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 2 QCOM_GPI_I2C>,
++				       <&gpi_dma1 1 2 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_1 0 &qup_virt SLAVE_QUP_CORE_1 0>,
+@@ -1304,6 +1387,9 @@ spi8: spi@a88000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_spi8_spi>, <&qup_spi8_cs>;
+ 				interrupts = <GIC_SPI 355 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 2 QCOM_GPI_SPI>,
++				       <&gpi_dma1 1 2 QCOM_GPI_SPI>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				power-domains = <&rpmhpd SC7180_CX>;
+@@ -1338,6 +1424,9 @@ i2c9: i2c@a8c000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c9_default>;
+ 				interrupts = <GIC_SPI 356 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 3 QCOM_GPI_I2C>,
++				       <&gpi_dma1 1 3 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_1 0 &qup_virt SLAVE_QUP_CORE_1 0>,
+@@ -1374,6 +1463,9 @@ i2c10: i2c@a90000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c10_default>;
+ 				interrupts = <GIC_SPI 357 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 4 QCOM_GPI_I2C>,
++				       <&gpi_dma1 1 4 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_1 0 &qup_virt SLAVE_QUP_CORE_1 0>,
+@@ -1394,6 +1486,9 @@ spi10: spi@a90000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_spi10_spi>, <&qup_spi10_cs>;
+ 				interrupts = <GIC_SPI 357 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 4 QCOM_GPI_SPI>,
++				       <&gpi_dma1 1 4 QCOM_GPI_SPI>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				power-domains = <&rpmhpd SC7180_CX>;
+@@ -1428,6 +1523,9 @@ i2c11: i2c@a94000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_i2c11_default>;
+ 				interrupts = <GIC_SPI 358 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 5 QCOM_GPI_I2C>,
++				       <&gpi_dma1 1 5 QCOM_GPI_I2C>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				interconnects = <&qup_virt MASTER_QUP_CORE_1 0 &qup_virt SLAVE_QUP_CORE_1 0>,
+@@ -1448,6 +1546,9 @@ spi11: spi@a94000 {
+ 				pinctrl-names = "default";
+ 				pinctrl-0 = <&qup_spi11_spi>, <&qup_spi11_cs>;
+ 				interrupts = <GIC_SPI 358 IRQ_TYPE_LEVEL_HIGH>;
++				dmas = <&gpi_dma1 0 5 QCOM_GPI_SPI>,
++				       <&gpi_dma1 1 5 QCOM_GPI_SPI>;
++				dma-names = "tx", "rx";
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+ 				power-domains = <&rpmhpd SC7180_CX>;
+-- 
+2.55.0
+

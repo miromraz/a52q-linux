@@ -1,0 +1,42 @@
+# checkpatch.pl --strict (drm-panel-s6e3fc3)
+--------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/drm-panel-s6e3fc3/v1-0001-dt-bindings-display-panel-add-Samsung-S6E3FC3.patch
+--------------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#21: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 70 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/drm-panel-s6e3fc3/v1-0001-dt-bindings-display-panel-add-Samsung-S6E3FC3.patch has style problems, please review.
+------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/drm-panel-s6e3fc3/v1-0002-drm-panel-samsung-s6e3fc3-add-driver-for-the-AMS6.patch
+------------------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#64: 
+new file mode 100644
+
+WARNING: DT compatible string "samsung,s6e3fc3-ams646yd04" appears un-documented -- check ./Documentation/devicetree/bindings/
+#475: FILE: drivers/gpu/drm/panel/panel-samsung-s6e3fc3.c:407:
++		.compatible = "samsung,s6e3fc3-ams646yd04",
+
+total: 0 errors, 2 warnings, 0 checks, 452 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/drm-panel-s6e3fc3/v1-0002-drm-panel-samsung-s6e3fc3-add-driver-for-the-AMS6.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

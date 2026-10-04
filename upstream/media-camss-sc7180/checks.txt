@@ -1,0 +1,82 @@
+# checkpatch.pl --strict (media-camss-sc7180)
+------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0001-dt-bindings-i2c-qcom-i2c-cci-Add-qcom-sc7180-cci.patch
+------------------------------------------------------------------------------------------------------------------
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 0 warnings, 0 checks, 7 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0001-dt-bindings-i2c-qcom-i2c-cci-Add-qcom-sc7180-cci.patch has style problems, please review.
+-------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0002-dt-bindings-media-qcom-camss-Add-SC7180-CAMSS-bin.patch
+-------------------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#25: 
+new file mode 100644
+
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 1 warnings, 0 checks, 294 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0002-dt-bindings-media-qcom-camss-Add-SC7180-CAMSS-bin.patch has style problems, please review.
+---------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0003-media-qcom-camss-Add-support-for-SC7180.patch
+---------------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "qcom,sc7180-camss" appears un-documented -- check ./Documentation/devicetree/bindings/
+#278: FILE: drivers/media/platform/qcom/camss/camss.c:5979:
++	{ .compatible = "qcom,sc7180-camss", .data = &sc7180_resources },
+
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 1 warnings, 0 checks, 254 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0003-media-qcom-camss-Add-support-for-SC7180.patch has style problems, please review.
+-------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0004-media-qcom-camss-Mark-SC7180-CSIPHY-as-gen2.patch
+-------------------------------------------------------------------------------------------------------------
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 0 warnings, 0 checks, 7 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0004-media-qcom-camss-Mark-SC7180-CSIPHY-as-gen2.patch has style problems, please review.
+-------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0005-media-qcom-camss-Add-SC7180-CSIPHY-D-PHY-lane-set.patch
+-------------------------------------------------------------------------------------------------------------------
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 0 warnings, 0 checks, 147 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0005-media-qcom-camss-Add-SC7180-CSIPHY-D-PHY-lane-set.patch has style problems, please review.
+---------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0006-media-qcom-camss-Add-C-PHY-support-for-SC7180.patch
+---------------------------------------------------------------------------------------------------------------
+ERROR: Missing Signed-off-by: line(s)
+
+total: 1 errors, 0 warnings, 0 checks, 152 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-camss-sc7180/v1-0006-media-qcom-camss-Add-C-PHY-support-for-SC7180.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

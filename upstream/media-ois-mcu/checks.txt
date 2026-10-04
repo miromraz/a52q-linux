@@ -1,0 +1,35 @@
+# checkpatch.pl --strict (media-ois-mcu)
+---------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-ois-mcu/v1-0001-dt-bindings-media-add-Samsung-camera-OIS-MCU.patch
+---------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+total: 0 errors, 0 warnings, 0 checks, 99 lines checked
+
+/home/realni/linux-a52q/upstream/media-ois-mcu/v1-0001-dt-bindings-media-add-Samsung-camera-OIS-MCU.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-ois-mcu/v1-0002-media-i2c-add-Samsung-camera-OIS-MCU-driver.patch
+--------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#64: 
+new file mode 100644
+
+WARNING: DT compatible string "samsung,ois-mcu" appears un-documented -- check ./Documentation/devicetree/bindings/
+#463: FILE: drivers/media/i2c/samsung-ois-mcu.c:395:
++	{ .compatible = "samsung,ois-mcu" },
+
+total: 0 errors, 2 warnings, 0 checks, 435 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-ois-mcu/v1-0002-media-i2c-add-Samsung-camera-OIS-MCU-driver.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

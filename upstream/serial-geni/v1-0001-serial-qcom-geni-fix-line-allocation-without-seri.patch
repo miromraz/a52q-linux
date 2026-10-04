@@ -1,0 +1,41 @@
+From ee504baeec1c1e14b1f3b6ea4e1a5eaec5d5e377 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:18:26 +0200
+Subject: [PATCH v1] serial: qcom-geni: fix line allocation without serial
+ aliases
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+of_alias_get_highest_id() returns -ENODEV when the DT has no "serial"
+aliases at all. The non-console path then passes max_alias_num + 1 as
+the lower bound to ida_alloc_range(), which rejects negative bounds, so
+every non-console GENI UART fails to probe with "Invalid line -19".
+Seen on the Samsung Galaxy A52 (SM7125), whose Bluetooth UART never
+bound. Treat "no aliases" as -1 so allocation starts at line 0.
+
+Fixes: a53be6945f51 ("serial: qcom-geni: Remove alias dependency from qcom serial driver")
+Cc: stable@vger.kernel.org
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/tty/serial/qcom_geni_serial.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/tty/serial/qcom_geni_serial.c b/drivers/tty/serial/qcom_geni_serial.c
+index 3633723acef8..7e55f27942c1 100644
+--- a/drivers/tty/serial/qcom_geni_serial.c
++++ b/drivers/tty/serial/qcom_geni_serial.c
+@@ -289,6 +289,10 @@ static struct qcom_geni_serial_port *get_port_from_line(int line, bool console,
+ 	} else {
+ 		int max_alias_num = of_alias_get_highest_id("serial");
+ 
++		/* no serial aliases at all: allocate from line 0 */
++		if (max_alias_num < 0)
++			max_alias_num = -1;
++
+ 		if (line < 0 || line >= nr_ports)
+ 			line = ida_alloc_range(&port_ida, max_alias_num + 1,
+ 					       nr_ports - 1, GFP_KERNEL);
+-- 
+2.55.0
+

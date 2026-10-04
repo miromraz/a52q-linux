@@ -1,0 +1,181 @@
+From 4f5f9b49f174baf33e929e3acd02cb44f53d75b1 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 05:01:53 +0200
+Subject: [PATCH v1 22/22] arm64: dts: qcom: sm7125-samsung-a52q: add GC5035
+ depth and macro cameras
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Galaxy A52 4G carries two GalaxyCore GC5035 sensors: a depth camera
+on CSIPHY1 (MCLK1) and a macro camera that shares CSIPHY3 with the
+ultra-wide sensor through the gpio66 MIPI switch, already modelled as a
+video-mux. Wire both up: add the two sensor nodes on cci1_i2c0, the
+depth link to CSIPHY1, connect the macro to the reserved video-mux input
+port, and add their MCLK pinctrl states. Add the ldo4 (1.2V digital) and
+the gpio64 analog regulators the two modules need.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 102 +++++++++++++++++-
+ 1 file changed, 97 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index 5794c27cacda..8e7bed1c1ec8 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -132,6 +132,11 @@ vreg_cam_l3: ldo3 {	/* vio, all sensors */
+ 					regulator-max-microvolt = <1800000>;
+ 				};
+ 
++				vreg_cam_l4: ldo4 {	/* depth/macro vdig */
++					regulator-min-microvolt = <1200000>;
++					regulator-max-microvolt = <1200000>;
++				};
++
+ 				vreg_cam_l5: ldo5 {	/* main vana */
+ 					regulator-min-microvolt = <2800000>;
+ 					regulator-max-microvolt = <2800000>;
+@@ -169,6 +174,16 @@ vreg_cam2_vana: regulator-cam2-vana {
+ 		enable-active-high;
+ 	};
+ 
++	/* avdd for both GC5035 modules (depth and macro), shared gpio64 rail */
++	vreg_cam3_vana: regulator-cam3-vana {
++		compatible = "regulator-fixed";
++		regulator-name = "cam3_vana";
++		regulator-min-microvolt = <2800000>;
++		regulator-max-microvolt = <2800000>;
++		gpio = <&tlmm 64 GPIO_ACTIVE_HIGH>;
++		enable-active-high;
++	};
++
+ 	/*
+ 	 * The ultra-wide (S5K3L6XX) and macro (GC5035) cameras share CSIPHY3
+ 	 * through a gpio66 MIPI switch, modelled as a video-mux. gpio66 low
+@@ -195,12 +210,8 @@ vmux_in_uw: endpoint {
+ 
+ 		port@1 {
+ 			reg = <1>;	/* mux state 1: macro */
+-			/*
+-			 * The macro camera is a GalaxyCore GC5035, which has
+-			 * no mainline binding yet, so its sensor node and this
+-			 * endpoint's remote are left to a later change.
+-			 */
+ 			vmux_in_macro: endpoint {
++				remote-endpoint = <&cam_gc5035_macro_ep>;
+ 			};
+ 		};
+ 
+@@ -694,6 +705,65 @@ cam_imx616_ep: endpoint {
+ 			};
+ 		};
+ 	};
++
++	/* depth: GalaxyCore GC5035, 2-lane D-PHY, CSIPHY1, MCLK1 24 MHz */
++	camera@37 {
++		compatible = "galaxycore,gc5035";
++		reg = <0x37>;
++		iovdd-supply = <&vreg_cam_l3>;
++		dvdd12-supply = <&vreg_cam_l4>;
++		avdd28-supply = <&vreg_cam3_vana>;
++		clocks = <&camcc CAM_CC_MCLK1_CLK>;
++		clock-names = "mclk";
++		clock-frequency = <24000000>;
++		assigned-clocks = <&camcc CAM_CC_MCLK1_CLK>;
++		assigned-clock-rates = <24000000>;
++		resetb-gpios = <&tlmm 42 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&cam_mclk1_default>;
++		pinctrl-names = "default";
++		orientation = <1>;
++		rotation = <270>;
++
++		port {
++			cam_gc5035_depth_ep: endpoint {
++				data-lanes = <1 2>;
++				link-frequencies = /bits/ 64 <438000000>;
++				remote-endpoint = <&csiphy1_ep>;
++			};
++		};
++	};
++
++	/*
++	 * macro: GalaxyCore GC5035, 2-lane D-PHY, MCLK3 24 MHz. Shares CSIPHY3
++	 * with the ultra-wide camera through the gpio66 MIPI switch (video-mux
++	 * input 1). "label" gives it a distinct entity name for its own tuning.
++	 */
++	camera@3f {
++		compatible = "galaxycore,gc5035";
++		reg = <0x3f>;
++		label = "gc5035_macro";
++		iovdd-supply = <&vreg_cam_l3>;
++		dvdd12-supply = <&vreg_cam_l4>;
++		avdd28-supply = <&vreg_cam3_vana>;
++		clocks = <&camcc CAM_CC_MCLK3_CLK>;
++		clock-names = "mclk";
++		clock-frequency = <24000000>;
++		assigned-clocks = <&camcc CAM_CC_MCLK3_CLK>;
++		assigned-clock-rates = <24000000>;
++		resetb-gpios = <&tlmm 24 GPIO_ACTIVE_LOW>;
++		pinctrl-0 = <&cam_mclk3_default>;
++		pinctrl-names = "default";
++		orientation = <1>;
++		rotation = <270>;
++
++		port {
++			cam_gc5035_macro_ep: endpoint {
++				data-lanes = <1 2>;
++				link-frequencies = /bits/ 64 <438000000>;
++				remote-endpoint = <&vmux_in_macro>;
++			};
++		};
++	};
+ };
+ 
+ &camss {
+@@ -712,6 +782,14 @@ csiphy0_ep: endpoint {
+ 			};
+ 		};
+ 
++		port@1 {
++			reg = <1>;
++			csiphy1_ep: endpoint {
++				data-lanes = <0 1>;
++				remote-endpoint = <&cam_gc5035_depth_ep>;
++			};
++		};
++
+ 		port@2 {
+ 			reg = <2>;
+ 			csiphy2_ep: endpoint {
+@@ -738,6 +816,13 @@ cam_mclk0_default: cam-mclk0-default-state {
+ 		bias-disable;
+ 	};
+ 
++	cam_mclk1_default: cam-mclk1-default-state {
++		pins = "gpio14";
++		function = "cam_mclk";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
+ 	cam_mclk2_default: cam-mclk2-default-state {
+ 		pins = "gpio15";
+ 		function = "cam_mclk";
+@@ -745,6 +830,13 @@ cam_mclk2_default: cam-mclk2-default-state {
+ 		bias-disable;
+ 	};
+ 
++	cam_mclk3_default: cam-mclk3-default-state {
++		pins = "gpio16";
++		function = "cam_mclk";
++		drive-strength = <2>;
++		bias-disable;
++	};
++
+ 	cam_mclk4_default: cam-mclk4-default-state {
+ 		pins = "gpio23";
+ 		function = "cam_mclk";
+-- 
+2.55.0
+

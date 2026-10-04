@@ -1,0 +1,262 @@
+From 46f5f85fa83783c3062e527eb2cb2a4a6903992f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:06:59 +0200
+Subject: [PATCH v1 13/22] arm64: dts: qcom: sm7125-samsung-a52q: add speakers,
+ WCD938x and sound card
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Enable the LPASS RX/TX/VA macros, the two SoundWire controllers and the
+LPI TLMM, and add the audio machine:
+
+ - two TAS2562 mono amplifiers on a bit-banged I2C bus, sharing the
+   Quinary MI2S playback link (16-bit slots, left/right selected at
+   runtime via each amplifier's ASI source control);
+ - a WCD9380 (WCD938x) codec over SoundWire for the earpiece, the
+   analog microphones and the headset;
+ - a qcom,sm8250-sndcard machine node wiring the speaker, WCD playback
+   and WCD capture DAI links.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 212 ++++++++++++++++++
+ 1 file changed, 212 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index eeefcdc4acf8..e6cc1ac8d750 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -8,6 +8,9 @@
+ /dts-v1/;
+ 
+ #include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/sound/qcom,q6afe.h>
++#include <dt-bindings/sound/qcom,q6asm.h>
++#include <dt-bindings/sound/qcom,q6dsp-lpass-ports.h>
+ #include "sm7125-samsung-common.dtsi"
+ 
+ / {
+@@ -34,6 +37,69 @@ smp2p-sleepstate {
+ 		qcom,smem-states = <&sleepstate_smp2p_out 12>;
+ 		interrupts-extended = <&sleepstate_smp2p_in 0 IRQ_TYPE_EDGE_RISING>;
+ 	};
++
++	/* Stereo speaker amplifiers on a bit-banged I2C bus (SCL stretch) */
++	i2c-speaker {
++		compatible = "i2c-gpio";
++		sda-gpios = <&tlmm 88 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
++		scl-gpios = <&tlmm 89 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
++		i2c-gpio,delay-us = <2>;
++		pinctrl-names = "default";
++		pinctrl-0 = <&tas2562_active>;
++		#address-cells = <1>;
++		#size-cells = <0>;
++
++		speaker_right: audio-codec@4c {
++			compatible = "ti,tas2562";
++			reg = <0x4c>;
++			interrupt-parent = <&tlmm>;
++			interrupts = <90 IRQ_TYPE_LEVEL_LOW>;
++			shutdown-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
++			ti,imon-slot-no = <0>;
++			ti,rx-slot-width = <16>;
++			sound-name-prefix = "Right";
++			#sound-dai-cells = <0>;
++		};
++
++		speaker_left: audio-codec@4d {
++			compatible = "ti,tas2562";
++			reg = <0x4d>;
++			interrupt-parent = <&tlmm>;
++			interrupts = <90 IRQ_TYPE_LEVEL_LOW>;
++			shutdown-gpios = <&tlmm 94 GPIO_ACTIVE_HIGH>;
++			ti,imon-slot-no = <0>;
++			ti,rx-slot-width = <16>;
++			sound-name-prefix = "Left";
++			#sound-dai-cells = <0>;
++		};
++	};
++
++	wcd938x: audio-codec {
++		compatible = "qcom,wcd9380-codec";
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&wcd_reset_default>;
++
++		reset-gpios = <&tlmm 58 GPIO_ACTIVE_LOW>;
++
++		qcom,micbias1-microvolt = <1800000>;
++		qcom,micbias2-microvolt = <1800000>;
++		qcom,micbias3-microvolt = <1800000>;
++		qcom,micbias4-microvolt = <1800000>;
++		qcom,mbhc-buttons-vthreshold-microvolt = <75000 150000 237000 500000
++							  500000 500000 500000 500000>;
++		qcom,mbhc-headset-vthreshold-microvolt = <1700000>;
++		qcom,mbhc-headphone-vthreshold-microvolt = <50000>;
++		qcom,rx-device = <&wcd_rx>;
++		qcom,tx-device = <&wcd_tx>;
++
++		vdd-buck-supply = <&vreg_l15a_1p8>;
++		vdd-rxtx-supply = <&vreg_l10a_1p8>;
++		vdd-io-supply = <&vreg_l10a_1p8>;
++		vdd-mic-bias-supply = <&vreg_bob>;
++
++		#sound-dai-cells = <1>;
++	};
+ };
+ 
+ &rmtfs_mem {
+@@ -246,3 +312,149 @@ &usb_1_dwc3_hs {
+ &venus {
+ 	firmware-name = "qcom/sm7125/a52q/venus.mbn";
+ };
++
++&lpass_tlmm {
++	status = "okay";
++};
++
++&rxmacro {
++	status = "okay";
++};
++
++/ {
++	sound {
++		compatible = "qcom,sm8250-sndcard";
++		model = "Samsung Galaxy A52";
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&i2s1_active>;
++
++		audio-routing = "IN1_HPHL", "HPHL_OUT",
++				"IN2_HPHR", "HPHR_OUT",
++				"AMIC1", "MIC BIAS1",
++				"AMIC2", "MIC BIAS2",
++				"AMIC4", "MIC BIAS3",
++				"TX SWR_ADC0", "ADC1_OUTPUT",
++				"TX SWR_ADC1", "ADC2_OUTPUT",
++				"TX SWR_ADC3", "ADC4_OUTPUT";
++
++		mm1-dai-link {
++			link-name = "MultiMedia1";
++
++			cpu {
++				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
++			};
++		};
++
++		mm2-dai-link {
++			link-name = "MultiMedia2";
++
++			cpu {
++				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
++			};
++		};
++
++		mm3-dai-link {
++			link-name = "MultiMedia3";
++
++			cpu {
++				sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA3>;
++			};
++		};
++
++		speaker-dai-link {
++			link-name = "Speaker Playback";
++
++			cpu {
++				sound-dai = <&q6afedai QUINARY_MI2S_RX>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++
++			codec {
++				sound-dai = <&speaker_right>, <&speaker_left>;
++			};
++		};
++
++		wcd-playback-dai-link {
++			link-name = "WCD Playback";
++
++			cpu {
++				sound-dai = <&q6afedai RX_CODEC_DMA_RX_0>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++
++			codec {
++				sound-dai = <&wcd938x 0>, <&swr1 0>, <&rxmacro 0>;
++			};
++		};
++
++		wcd-capture-dai-link {
++			link-name = "WCD Capture";
++
++			cpu {
++				sound-dai = <&q6afedai TX_CODEC_DMA_TX_3>;
++			};
++
++			platform {
++				sound-dai = <&q6routing>;
++			};
++
++			codec {
++				sound-dai = <&wcd938x 1>, <&swr2 0>, <&txmacro 0>;
++			};
++		};
++	};
++};
++
++&swr1 {
++	status = "okay";
++
++	/* WCD9380 RX */
++	wcd_rx: wcd9380-rx@0,4 {
++		compatible = "sdw20217010d00";
++		reg = <0 4>;
++		qcom,rx-port-mapping = <1 2 3 4 5>;
++	};
++};
++
++&swr2 {
++	status = "okay";
++
++	/* WCD9380 TX */
++	wcd_tx: wcd9380-tx@0,3 {
++		compatible = "sdw20217010d00";
++		reg = <0 3>;
++		qcom,tx-port-mapping = <2 3 4 5>;
++	};
++};
++
++&tlmm {
++	tas2562_active: tas2562-active-state {
++		/* SDA, SCL, INT, EN */
++		pins = "gpio88", "gpio89", "gpio90", "gpio94";
++		function = "gpio";
++		bias-disable;
++	};
++
++	wcd_reset_default: wcd-reset-default-state {
++		pins = "gpio58";
++		function = "gpio";
++		drive-strength = <16>;
++		bias-disable;
++		output-low;
++	};
++};
++
++&txmacro {
++	status = "okay";
++};
++
++&vamacro {
++	status = "okay";
++};
+-- 
+2.55.0
+

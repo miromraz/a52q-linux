@@ -1,0 +1,335 @@
+From 66a9061310c03b1de4e84a6971c5f7b1c118c43d Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Fri, 2 Oct 2026 22:44:08 +0200
+Subject: [PATCH v1 2/4] media: qcom: camss: take CSIPHY/CSID lane count from
+ the active sensor
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On boards with a MIPI mux two sensors share one CSIPHY port and each may
+drive a different number of data lanes. CAMSS configures the CSIPHY and
+CSID lane count statically from the CSIPHY's own DT endpoint, which is
+sized for one of the two sensors, so the other never locks.
+
+On the a52q the ultra-wide (4 lanes) and macro (2 lanes) cameras share
+CSIPHY3 behind a video mux. The port endpoint declares 4 lanes for the
+ultra-wide, so when the macro is selected the CSIPHY waits for two lanes
+that never toggle and the CSID is told to expect four active lanes: the
+pipeline streams with no error but no frame ever arrives.
+
+Add camss_get_num_lanes(), which asks the active sensor - reached through
+the enabled links, i.e. across the mux - for its media bus config via the
+.get_mbus_config pad op and returns its data lane count capped to the
+port's DT value. When the sensor does not implement .get_mbus_config it
+falls back to the DT value, so plain pipelines are unchanged.
+
+Use it in csiphy_stream_on() to program the lane mask and link frequency,
+and in csid_set_stream() to program CSI2_RX_CFG0 NUM_ACTIVE_LANES, both
+for the lane count of the sensor actually selected on the mux.
+
+Implement .get_mbus_config in the a52q sensor drivers (gc5035, s5k3l6xx,
+imx616, s5kgw1p) so the lane count is sourced from the sensor rather than
+guessed from the shared port.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/media/i2c/gc5035.c                    | 15 +++++++
+ drivers/media/i2c/imx616.c                    | 11 +++++
+ drivers/media/i2c/s5k3l6xx.c                  | 11 +++++
+ drivers/media/i2c/s5kgw1p.c                   | 11 +++++
+ .../media/platform/qcom/camss/camss-csid.c    | 22 +++++++++-
+ .../media/platform/qcom/camss/camss-csiphy.c  | 21 ++++++++--
+ drivers/media/platform/qcom/camss/camss.c     | 42 +++++++++++++++++++
+ drivers/media/platform/qcom/camss/camss.h     |  2 +
+ 8 files changed, 130 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/media/i2c/gc5035.c b/drivers/media/i2c/gc5035.c
+index acb660ae3070..f99e3e4cd134 100644
+--- a/drivers/media/i2c/gc5035.c
++++ b/drivers/media/i2c/gc5035.c
+@@ -185,6 +185,7 @@ struct gc5035 {
+ 	struct v4l2_ctrl *hblank;
+ 	struct v4l2_ctrl *vblank;
+ 
++	u8 num_data_lanes;
+ 	bool otp_read;
+ 	u8 otp_id[GC5035_OTP_ID_SIZE];
+ 	struct gc5035_dpc dpc;
+@@ -1551,12 +1552,24 @@ static const struct v4l2_subdev_video_ops gc5035_video_ops = {
+ 	.s_stream = gc5035_s_stream,
+ };
+ 
++static int gc5035_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
++				  struct v4l2_mbus_config *config)
++{
++	struct gc5035 *gc5035 = to_gc5035(sd);
++
++	config->type = V4L2_MBUS_CSI2_DPHY;
++	config->bus.mipi_csi2.num_data_lanes = gc5035->num_data_lanes;
++
++	return 0;
++}
++
+ static const struct v4l2_subdev_pad_ops gc5035_pad_ops = {
+ 	.enum_mbus_code = gc5035_enum_mbus_code,
+ 	.enum_frame_size = gc5035_enum_frame_sizes,
+ 	.get_fmt = gc5035_get_fmt,
+ 	.set_fmt = gc5035_set_fmt,
+ 	.get_selection = gc5035_get_selection,
++	.get_mbus_config = gc5035_get_mbus_config,
+ };
+ 
+ static const struct v4l2_subdev_ops gc5035_subdev_ops = {
+@@ -1833,6 +1846,8 @@ static int gc5035_get_hwcfg(struct gc5035 *gc5035)
+ 	if (ret)
+ 		goto out;
+ 
++	gc5035->num_data_lanes = bus_cfg.bus.mipi_csi2.num_data_lanes;
++
+ 	dev_dbg(dev, "num of link freqs: %d", bus_cfg.nr_of_link_frequencies);
+ 	if (!bus_cfg.nr_of_link_frequencies) {
+ 		dev_warn(dev, "no link frequencies defined");
+diff --git a/drivers/media/i2c/imx616.c b/drivers/media/i2c/imx616.c
+index 452e32933052..ddb18a127df9 100644
+--- a/drivers/media/i2c/imx616.c
++++ b/drivers/media/i2c/imx616.c
+@@ -410,12 +410,23 @@ static const struct v4l2_subdev_video_ops imx616_video_ops = {
+ 	.s_stream = imx616_s_stream,
+ };
+ 
++static int imx616_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
++				  struct v4l2_mbus_config *config)
++{
++	/* 4 D-PHY data lanes, enforced at probe time. */
++	config->type = V4L2_MBUS_CSI2_DPHY;
++	config->bus.mipi_csi2.num_data_lanes = 4;
++
++	return 0;
++}
++
+ static const struct v4l2_subdev_pad_ops imx616_pad_ops = {
+ 	.enum_mbus_code = imx616_enum_mbus_code,
+ 	.enum_frame_size = imx616_enum_frame_size,
+ 	.get_fmt = imx616_get_fmt,
+ 	.set_fmt = imx616_set_fmt,
+ 	.get_selection = imx616_get_selection,
++	.get_mbus_config = imx616_get_mbus_config,
+ };
+ 
+ static const struct v4l2_subdev_ops imx616_subdev_ops = {
+diff --git a/drivers/media/i2c/s5k3l6xx.c b/drivers/media/i2c/s5k3l6xx.c
+index 64f44641f424..84f0f4d73e51 100644
+--- a/drivers/media/i2c/s5k3l6xx.c
++++ b/drivers/media/i2c/s5k3l6xx.c
+@@ -438,12 +438,23 @@ static const struct v4l2_subdev_video_ops s5k3l6xx_video_ops = {
+ 	.s_stream = s5k3l6xx_s_stream,
+ };
+ 
++static int s5k3l6xx_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
++				    struct v4l2_mbus_config *config)
++{
++	/* 4 D-PHY data lanes, enforced at probe time. */
++	config->type = V4L2_MBUS_CSI2_DPHY;
++	config->bus.mipi_csi2.num_data_lanes = 4;
++
++	return 0;
++}
++
+ static const struct v4l2_subdev_pad_ops s5k3l6xx_pad_ops = {
+ 	.enum_mbus_code = s5k3l6xx_enum_mbus_code,
+ 	.enum_frame_size = s5k3l6xx_enum_frame_size,
+ 	.get_fmt = s5k3l6xx_get_fmt,
+ 	.set_fmt = s5k3l6xx_set_fmt,
+ 	.get_selection = s5k3l6xx_get_selection,
++	.get_mbus_config = s5k3l6xx_get_mbus_config,
+ };
+ 
+ static const struct v4l2_subdev_ops s5k3l6xx_subdev_ops = {
+diff --git a/drivers/media/i2c/s5kgw1p.c b/drivers/media/i2c/s5kgw1p.c
+index fe801ef99dfc..5e88e25882c4 100644
+--- a/drivers/media/i2c/s5kgw1p.c
++++ b/drivers/media/i2c/s5kgw1p.c
+@@ -432,12 +432,23 @@ static const struct v4l2_subdev_video_ops s5kgw1p_video_ops = {
+ 	.s_stream = s5kgw1p_s_stream,
+ };
+ 
++static int s5kgw1p_get_mbus_config(struct v4l2_subdev *sd, unsigned int pad,
++				   struct v4l2_mbus_config *config)
++{
++	/* 3 C-PHY data lanes, enforced at probe time. */
++	config->type = V4L2_MBUS_CSI2_CPHY;
++	config->bus.mipi_csi2.num_data_lanes = 3;
++
++	return 0;
++}
++
+ static const struct v4l2_subdev_pad_ops s5kgw1p_pad_ops = {
+ 	.enum_mbus_code = s5kgw1p_enum_mbus_code,
+ 	.enum_frame_size = s5kgw1p_enum_frame_size,
+ 	.get_fmt = s5kgw1p_get_fmt,
+ 	.set_fmt = s5kgw1p_set_fmt,
+ 	.get_selection = s5kgw1p_get_selection,
++	.get_mbus_config = s5kgw1p_get_mbus_config,
+ };
+ 
+ static const struct v4l2_subdev_ops s5kgw1p_subdev_ops = {
+diff --git a/drivers/media/platform/qcom/camss/camss-csid.c b/drivers/media/platform/qcom/camss/camss-csid.c
+index c8cb6f1a3d3b..6a53dd20b56f 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid.c
++++ b/drivers/media/platform/qcom/camss/camss-csid.c
+@@ -765,6 +765,8 @@ static int csid_set_stream(struct v4l2_subdev *sd, int enable)
+ 	int ret;
+ 
+ 	if (enable) {
++		struct media_pad *remote;
++
+ 		if (csid->testgen.nmodes != CSID_PAYLOAD_MODE_DISABLED) {
+ 			ret = v4l2_ctrl_handler_setup(&csid->ctrls);
+ 			if (ret < 0) {
+@@ -774,9 +776,25 @@ static int csid_set_stream(struct v4l2_subdev *sd, int enable)
+ 			}
+ 		}
+ 
+-		if (!csid->testgen.enabled &&
+-		    !media_pad_remote_pad_first(&csid->pads[MSM_CSID_PAD_SINK]))
++		remote = media_pad_remote_pad_first(&csid->pads[MSM_CSID_PAD_SINK]);
++		if (!csid->testgen.enabled && !remote)
+ 			return -ENOLINK;
++
++		if (remote && !csid->tpg_linked) {
++			struct csiphy_device *csiphy =
++				v4l2_get_subdevdata(media_entity_to_v4l2_subdev(remote->entity));
++
++			/*
++			 * link_setup() cached the CSIPHY port's lane count. A
++			 * board MIPI mux can select a sensor with fewer lanes,
++			 * so re-evaluate against the active sensor; the DT lane
++			 * map's extra entries are unused once the count drops.
++			 */
++			if (csiphy->cfg.csi2)
++				csid->phy.lane_cnt =
++					camss_get_num_lanes(&csid->subdev.entity,
++							    csiphy->cfg.csi2->lane_cfg.num_data);
++		}
+ 	}
+ 
+ 	if (csid->phy.need_vc_update) {
+diff --git a/drivers/media/platform/qcom/camss/camss-csiphy.c b/drivers/media/platform/qcom/camss/camss-csiphy.c
+index a136cd27880a..995f4cacc1dc 100644
+--- a/drivers/media/platform/qcom/camss/camss-csiphy.c
++++ b/drivers/media/platform/qcom/camss/camss-csiphy.c
+@@ -266,19 +266,32 @@ static int csiphy_set_power(struct v4l2_subdev *sd, int on)
+ static int csiphy_stream_on(struct csiphy_device *csiphy)
+ {
+ 	struct csiphy_config *cfg = &csiphy->cfg;
++	struct csiphy_lanes_cfg *lane_cfg = &cfg->csi2->lane_cfg;
++	int dt_num_data = lane_cfg->num_data;
+ 	s64 link_freq;
+-	u8 lane_mask = csiphy->res->hw_ops->get_lane_mask(&cfg->csi2->lane_cfg);
++	u8 lane_mask;
+ 	u8 bpp = csiphy_get_bpp(csiphy->res->formats->formats, csiphy->res->formats->nformats,
+ 				csiphy->fmt[MSM_CSIPHY_PAD_SINK].code);
+-	u8 num_lanes = csiphy->cfg.csi2->lane_cfg.num_data;
+-	const bool cphy = (csiphy->cfg.csi2->lane_cfg.phy_cfg == V4L2_MBUS_CSI2_CPHY);
++	u8 num_lanes;
++	const bool cphy = (lane_cfg->phy_cfg == V4L2_MBUS_CSI2_CPHY);
+ 	u8 val;
+ 
++	/*
++	 * A board MIPI mux can select a sensor with fewer data lanes than this
++	 * port declares; stream with the active sensor's lane count and the
++	 * first N lanes of the port's lane map, restoring the DT value before
++	 * returning.
++	 */
++	lane_cfg->num_data = camss_get_num_lanes(&csiphy->subdev.entity, dt_num_data);
++	num_lanes = lane_cfg->num_data;
++	lane_mask = csiphy->res->hw_ops->get_lane_mask(lane_cfg);
++
+ 	link_freq = camss_get_link_freq(&csiphy->subdev.entity, bpp, num_lanes, cphy);
+ 
+ 	if (link_freq < 0) {
+ 		dev_err(csiphy->camss->dev,
+ 			"Cannot get CSI2 transmitter's link frequency\n");
++		lane_cfg->num_data = dt_num_data;
+ 		return -EINVAL;
+ 	}
+ 
+@@ -299,6 +312,8 @@ static int csiphy_stream_on(struct csiphy_device *csiphy)
+ 
+ 	csiphy->res->hw_ops->lanes_enable(csiphy, cfg, link_freq, lane_mask);
+ 
++	lane_cfg->num_data = dt_num_data;
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/media/platform/qcom/camss/camss.c b/drivers/media/platform/qcom/camss/camss.c
+index cf056b4a28a9..f8c0d5efa9a0 100644
+--- a/drivers/media/platform/qcom/camss/camss.c
++++ b/drivers/media/platform/qcom/camss/camss.c
+@@ -4832,6 +4832,48 @@ struct media_pad *camss_find_sensor_pad(struct media_entity *entity)
+ 	}
+ }
+ 
++/**
++ * camss_get_num_lanes - CSI-2 data lane count of the active sensor
++ * @entity: Media entity in the current pipeline
++ * @max_lanes: Number of data lanes wired to the CAMSS port (CSIPHY DT endpoint)
++ *
++ * A board MIPI mux can route a sensor with fewer data lanes than the shared
++ * CSIPHY port declares (e.g. the a52q macro camera shares a 4-lane port with
++ * the ultra-wide sensor but drives only 2 lanes). Query the active sensor's
++ * media bus config and return its data lane count, capped to @max_lanes.
++ *
++ * Fall back to @max_lanes (the CSIPHY DT endpoint value) when the sensor does
++ * not implement .get_mbus_config or does not report a CSI-2 lane count.
++ *
++ * Return the number of data lanes to program for the current stream.
++ */
++unsigned int camss_get_num_lanes(struct media_entity *entity,
++				 unsigned int max_lanes)
++{
++	struct media_pad *sensor_pad = camss_find_sensor_pad(entity);
++	struct v4l2_mbus_config mbus = { 0 };
++	struct v4l2_subdev *sensor;
++	int ret;
++
++	if (!sensor_pad)
++		return max_lanes;
++
++	sensor = media_entity_to_v4l2_subdev(sensor_pad->entity);
++	ret = v4l2_subdev_call(sensor, pad, get_mbus_config,
++			       sensor_pad->index, &mbus);
++	if (ret)
++		return max_lanes;
++
++	if (mbus.type != V4L2_MBUS_CSI2_DPHY &&
++	    mbus.type != V4L2_MBUS_CSI2_CPHY)
++		return max_lanes;
++
++	if (!mbus.bus.mipi_csi2.num_data_lanes)
++		return max_lanes;
++
++	return min_t(unsigned int, mbus.bus.mipi_csi2.num_data_lanes, max_lanes);
++}
++
+ /**
+  * camss_get_link_freq - Get link frequency from sensor
+  * @entity: Media entity in the current pipeline
+diff --git a/drivers/media/platform/qcom/camss/camss.h b/drivers/media/platform/qcom/camss/camss.h
+index d7526311325a..24100e3ea775 100644
+--- a/drivers/media/platform/qcom/camss/camss.h
++++ b/drivers/media/platform/qcom/camss/camss.h
+@@ -169,6 +169,8 @@ int camss_enable_clocks(int nclocks, struct camss_clock *clock,
+ 			struct device *dev);
+ void camss_disable_clocks(int nclocks, struct camss_clock *clock);
+ struct media_pad *camss_find_sensor_pad(struct media_entity *entity);
++unsigned int camss_get_num_lanes(struct media_entity *entity,
++				 unsigned int max_lanes);
+ s64 camss_get_link_freq(struct media_entity *entity, unsigned int bpp,
+ 			unsigned int lanes, const bool cphy);
+ int camss_get_pixel_clock(struct media_entity *entity, u64 *pixel_clock);
+-- 
+2.55.0
+

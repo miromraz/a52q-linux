@@ -1,0 +1,123 @@
+diff --git a/hexagonrpcd/hexagonfs_virt_dir.c b/hexagonrpcd/hexagonfs_virt_dir.c
+index eaba520..46c9fef 100644
+--- a/hexagonrpcd/hexagonfs_virt_dir.c
++++ b/hexagonrpcd/hexagonfs_virt_dir.c
+@@ -46,16 +46,28 @@ static const struct hexagonfs_dirent *walk_dir(const struct hexagonfs_dirent *co
+ 	return *curr;
+ }
+ 
++/*
++ * a52q: virtual directories need a readdir so the ADSP sensor PD can enumerate
++ * them (upstream only implements readdir for real/mapped dirs, so listing a
++ * virtual dir returned -ENOSYS -> the "Could not read from directory: Function
++ * not implemented" log lines). Keep a per-fd cursor into the dirent list.
++ */
++struct virt_dir_ctx {
++	const struct hexagonfs_dirent *const *dir;
++	size_t pos;
++};
++
+ static int virt_dir_from_dirent(const void *dirent_data, bool dir, void **fd_data)
+ {
+-	const struct hexagonfs_dirent *const **wrapper;
++	struct virt_dir_ctx *ctx;
+ 
+-	wrapper = malloc(sizeof(*wrapper));
+-	if (wrapper == NULL)
++	ctx = malloc(sizeof(*ctx));
++	if (ctx == NULL)
+ 		return -ENOMEM;
+ 
+-	*wrapper = dirent_data;
+-	*fd_data = wrapper;
++	ctx->dir = dirent_data;
++	ctx->pos = 0;
++	*fd_data = ctx;
+ 
+ 	return 0;
+ }
+@@ -65,12 +77,12 @@ static int virt_dir_openat(struct hexagonfs_fd *dir,
+ 			   bool expect_dir,
+ 			   struct hexagonfs_fd **out)
+ {
+-	const struct hexagonfs_dirent *const **dirlist = dir->data;
++	struct virt_dir_ctx *ctx = dir->data;
+ 	const struct hexagonfs_dirent *ent;
+ 	struct hexagonfs_fd *fd;
+ 	int ret;
+ 
+-	ent = walk_dir(*dirlist, segment);
++	ent = walk_dir(ctx->dir, segment);
+ 	if (ent == NULL)
+ 		return -ENOENT;
+ 
+@@ -100,6 +112,61 @@ static void virt_dir_close(void *fd_data)
+ 	free(fd_data);
+ }
+ 
++static int virt_dir_readdir(struct hexagonfs_fd *fd, size_t size, char *out)
++{
++	struct virt_dir_ctx *ctx = fd->data;
++	const struct hexagonfs_dirent *ent;
++
++	if (size == 0)
++		return -EINVAL;
++
++	ent = ctx->dir[ctx->pos];
++	if (ent == NULL) {
++		/* end of directory: apps_std treats an empty name as EOF */
++		out[0] = '\0';
++		return 0;
++	}
++
++	strncpy(out, ent->name, size - 1);
++	out[size - 1] = '\0';
++	ctx->pos++;
++
++	return 0;
++}
++
++/*
++ * a52q: see mapped_clone(). ->up is the original (assigned) fd so close() stays
++ * safe; the copy restarts enumeration from the first entry.
++ */
++static int virt_dir_clone(struct hexagonfs_fd *fd, struct hexagonfs_fd **out)
++{
++	struct virt_dir_ctx *src = fd->data;
++	struct virt_dir_ctx *ctx;
++	struct hexagonfs_fd *nfd;
++
++	ctx = malloc(sizeof(*ctx));
++	if (ctx == NULL)
++		return -ENOMEM;
++
++	nfd = malloc(sizeof(*nfd));
++	if (nfd == NULL) {
++		free(ctx);
++		return -ENOMEM;
++	}
++
++	ctx->dir = src->dir;
++	ctx->pos = 0;
++
++	nfd->is_assigned = false;
++	nfd->up = fd;
++	nfd->ops = fd->ops;
++	nfd->data = ctx;
++
++	*out = nfd;
++
++	return 0;
++}
++
+ static int virt_dir_stat(struct hexagonfs_fd *fd, struct stat *stats)
+ {
+ 	stats->st_size = 0;
+@@ -128,5 +195,7 @@ struct hexagonfs_file_ops hexagonfs_virt_dir_ops = {
+ 	.close = virt_dir_close,
+ 	.from_dirent = virt_dir_from_dirent,
+ 	.openat = virt_dir_openat,
++	.readdir = virt_dir_readdir,
+ 	.stat = virt_dir_stat,
++	.clone = virt_dir_clone,
+ };

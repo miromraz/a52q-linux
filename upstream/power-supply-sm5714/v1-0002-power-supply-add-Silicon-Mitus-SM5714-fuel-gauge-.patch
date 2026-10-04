@@ -1,0 +1,283 @@
+From a2edf94539598f1599bb9f12d3b4d1e55c19498b Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:28:15 +0200
+Subject: [PATCH v1 2/5] power: supply: add Silicon Mitus SM5714 fuel gauge
+ driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The SM5714 is a combo PMIC integrating a charger, a fuel gauge and a
+Type-C/USB block. Add a driver for its fuel gauge block, found on Samsung
+phones such as the Galaxy A52 (SM7125). It reports battery voltage,
+current, temperature and state of charge, read from an indirectly
+addressed SRAM.
+
+Based on the downstream SM5714 fuel-gauge driver by map220v, ported to the
+current power_supply and probe APIs and cleaned up for upstream. No public
+datasheet is available; the register layout and the fixed-point scaling
+come from the Samsung downstream driver and were verified against raw
+register reads on a Galaxy A52.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ MAINTAINERS                      |   7 ++
+ drivers/power/supply/Kconfig     |  11 ++
+ drivers/power/supply/Makefile    |   1 +
+ drivers/power/supply/sm5714-fg.c | 192 +++++++++++++++++++++++++++++++
+ 4 files changed, 211 insertions(+)
+ create mode 100644 drivers/power/supply/sm5714-fg.c
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 72294ddfa5b7..fa75969bc90c 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -25081,6 +25081,13 @@ S:	Supported
+ F:	Documentation/devicetree/bindings/net/wireless/silabs,wfx.yaml
+ F:	drivers/net/wireless/silabs/
+ 
++SILICON MITUS SM5714 FUEL GAUGE DRIVER
++M:	Miroslav Mráz <miroslav.mraz@techmania.cz>
++L:	linux-pm@vger.kernel.org
++S:	Maintained
++F:	Documentation/devicetree/bindings/power/supply/siliconmitus,sm5714-fg.yaml
++F:	drivers/power/supply/sm5714-fg.c
++
+ SILICON MOTION SM712 FRAME BUFFER DRIVER
+ M:	Sudip Mukherjee <sudipm.mukherjee@gmail.com>
+ M:	Teddy Wang <teddy.wang@siliconmotion.com>
+diff --git a/drivers/power/supply/Kconfig b/drivers/power/supply/Kconfig
+index b89ef40df7f8..15156f72df96 100644
+--- a/drivers/power/supply/Kconfig
++++ b/drivers/power/supply/Kconfig
+@@ -240,6 +240,17 @@ config BATTERY_S2MU005
+ 
+ 	  This driver, if built as a module, will be called s2mu005-fuel-gauge.
+ 
++config BATTERY_SM5714
++	tristate "Silicon Mitus SM5714 fuel gauge driver"
++	depends on I2C
++	help
++	  Say Y here to enable support for the fuel gauge block of the Silicon
++	  Mitus SM5714 combo PMIC, found on some Samsung phones. It reports
++	  battery voltage, current, temperature and state of charge.
++
++	  This driver can also be built as a module. If so, the module will be
++	  called sm5714-fg.
++
+ config BATTERY_COLLIE
+ 	tristate "Sharp SL-5500 (collie) battery"
+ 	depends on SA1100_COLLIE && MCP_UCB1200
+diff --git a/drivers/power/supply/Makefile b/drivers/power/supply/Makefile
+index f3c0d1006c1a..9c931dfcae47 100644
+--- a/drivers/power/supply/Makefile
++++ b/drivers/power/supply/Makefile
+@@ -41,6 +41,7 @@ obj-$(CONFIG_BATTERY_QCOM_BATTMGR)	+= qcom_battmgr.o
+ obj-$(CONFIG_BATTERY_OLPC)	+= olpc_battery.o
+ obj-$(CONFIG_BATTERY_SAMSUNG_SDI)	+= samsung-sdi-battery.o
+ obj-$(CONFIG_BATTERY_S2MU005)	+= s2mu005-battery.o
++obj-$(CONFIG_BATTERY_SM5714)	+= sm5714-fg.o
+ obj-$(CONFIG_BATTERY_COLLIE)	+= collie_battery.o
+ obj-$(CONFIG_BATTERY_INGENIC)	+= ingenic-battery.o
+ obj-$(CONFIG_BATTERY_INTEL_DC_TI) += intel_dc_ti_battery.o
+diff --git a/drivers/power/supply/sm5714-fg.c b/drivers/power/supply/sm5714-fg.c
+new file mode 100644
+index 000000000000..f11f3b13e1f4
+--- /dev/null
++++ b/drivers/power/supply/sm5714-fg.c
+@@ -0,0 +1,192 @@
++// SPDX-License-Identifier: GPL-2.0-only
++/*
++ * Silicon Mitus SM5714 combo PMIC fuel gauge.
++ *
++ * Copyright (c) 2024, map220v <map220v300@gmail.com>
++ *
++ * The measured quantities live in an indirectly addressed SRAM: write the
++ * word address to RADDR, then read the value from RDATA. Register layout and
++ * the fixed-point scaling come from the Samsung downstream driver; no public
++ * datasheet is available.
++ */
++#include <linux/i2c.h>
++#include <linux/kernel.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/power_supply.h>
++#include <linux/property.h>
++
++#define SM5714_FG_REG_SRAM_RADDR	0x8c
++#define SM5714_FG_REG_SRAM_RDATA	0x8d
++
++#define SM5714_FG_ADDR_SRAM_SOC		0x00
++#define SM5714_FG_ADDR_SRAM_VBAT	0x03
++#define SM5714_FG_ADDR_SRAM_CURRENT	0x05
++#define SM5714_FG_ADDR_SRAM_TEMPERATURE	0x07
++
++struct sm5714_fg {
++	struct power_supply *psy;
++	struct i2c_client *i2c;
++	int charge_full_design_uah;
++};
++
++static enum power_supply_property sm5714_fg_props[] = {
++	POWER_SUPPLY_PROP_TEMP,
++	POWER_SUPPLY_PROP_CAPACITY,
++	POWER_SUPPLY_PROP_VOLTAGE_NOW,
++	POWER_SUPPLY_PROP_CURRENT_NOW,
++	POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN,
++	POWER_SUPPLY_PROP_CHARGE_FULL,
++	POWER_SUPPLY_PROP_CHARGE_NOW,
++};
++
++static int sm5714_fg_read_sram(struct sm5714_fg *drv, u8 addr)
++{
++	int ret;
++
++	ret = i2c_smbus_write_word_data(drv->i2c, SM5714_FG_REG_SRAM_RADDR, addr);
++	if (ret < 0)
++		return ret;
++
++	return i2c_smbus_read_word_data(drv->i2c, SM5714_FG_REG_SRAM_RDATA);
++}
++
++/* SRAM words are sign-magnitude: bit 15 is the sign. */
++static int sm5714_fg_sign(int raw, int mag)
++{
++	return (raw & 0x8000) ? -mag : mag;
++}
++
++static int sm5714_fg_get_property(struct power_supply *psy,
++				  enum power_supply_property psp,
++				  union power_supply_propval *val)
++{
++	struct sm5714_fg *drv = power_supply_get_drvdata(psy);
++	int raw;
++
++	switch (psp) {
++	case POWER_SUPPLY_PROP_TEMP:
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_TEMPERATURE);
++		if (raw < 0)
++			return raw;
++		/* tenths of a degree Celsius */
++		val->intval = sm5714_fg_sign(raw, ((raw & 0x7fff) * 10 * 2989) >> 19);
++		break;
++	case POWER_SUPPLY_PROP_CAPACITY:
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_SOC);
++		if (raw < 0)
++			return raw;
++		/* 8.8 fixed-point percent, clamped to 100% */
++		val->intval = min((raw * 10) >> 8, 1000) / 10;
++		break;
++	case POWER_SUPPLY_PROP_VOLTAGE_NOW:
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_VBAT);
++		if (raw < 0)
++			return raw;
++		/* microvolts, 2700 mV offset */
++		val->intval = (2700 + sm5714_fg_sign(raw, ((raw & 0x7fff) * 10) / 109)) * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CURRENT_NOW:
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_CURRENT);
++		if (raw < 0)
++			return raw;
++		/* microamps, negative while discharging */
++		val->intval = sm5714_fg_sign(raw, ((raw & 0x7fff) * 1000) / 2044) * 1000;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_FULL_DESIGN:
++	/* no capacity learning on this gauge: full is the design capacity */
++	case POWER_SUPPLY_PROP_CHARGE_FULL:
++		if (!drv->charge_full_design_uah)
++			return -ENODATA;
++		val->intval = drv->charge_full_design_uah;
++		break;
++	case POWER_SUPPLY_PROP_CHARGE_NOW:
++		/*
++		 * The gauge exposes no coulomb counter, so scale the design
++		 * charge by the reported state of charge.
++		 */
++		if (!drv->charge_full_design_uah)
++			return -ENODATA;
++		raw = sm5714_fg_read_sram(drv, SM5714_FG_ADDR_SRAM_SOC);
++		if (raw < 0)
++			return raw;
++		val->intval = drv->charge_full_design_uah / 100 *
++			      (min((raw * 10) >> 8, 1000) / 10);
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static const struct power_supply_desc sm5714_fg_desc = {
++	.name		= "sm5714-fg",
++	.type		= POWER_SUPPLY_TYPE_BATTERY,
++	.properties	= sm5714_fg_props,
++	.num_properties	= ARRAY_SIZE(sm5714_fg_props),
++	.get_property	= sm5714_fg_get_property,
++};
++
++static int sm5714_fg_probe(struct i2c_client *i2c)
++{
++	struct power_supply_config fg_cfg = { };
++	struct power_supply_battery_info *info;
++	struct sm5714_fg *drv;
++	int ret;
++
++	drv = devm_kzalloc(&i2c->dev, sizeof(*drv), GFP_KERNEL);
++	if (!drv)
++		return -ENOMEM;
++	drv->i2c = i2c;
++
++	fg_cfg.drv_data = drv;
++	fg_cfg.fwnode = dev_fwnode(&i2c->dev);
++
++	drv->psy = devm_power_supply_register(&i2c->dev, &sm5714_fg_desc, &fg_cfg);
++	if (IS_ERR(drv->psy))
++		return dev_err_probe(&i2c->dev, PTR_ERR(drv->psy),
++				     "failed to register power supply\n");
++
++	/*
++	 * An optional "monitored-battery" node supplies the design capacity;
++	 * without it the charge_* properties report -ENODATA.
++	 */
++	ret = power_supply_get_battery_info(drv->psy, &info);
++	if (ret == -ENODEV || ret == -ENOENT)
++		return 0;
++	if (ret)
++		return dev_err_probe(&i2c->dev, ret, "failed to get battery info\n");
++
++	if (info->charge_full_design_uah > 0)
++		drv->charge_full_design_uah = info->charge_full_design_uah;
++	power_supply_put_battery_info(drv->psy, info);
++
++	return 0;
++}
++
++static const struct i2c_device_id sm5714_fg_id[] = {
++	{ "sm5714-fg" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, sm5714_fg_id);
++
++static const struct of_device_id sm5714_fg_of_match[] = {
++	{ .compatible = "siliconmitus,sm5714-fg" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, sm5714_fg_of_match);
++
++static struct i2c_driver sm5714_fg_driver = {
++	.driver = {
++		.name = "sm5714-fg",
++		.of_match_table = sm5714_fg_of_match,
++	},
++	.probe = sm5714_fg_probe,
++	.id_table = sm5714_fg_id,
++};
++module_i2c_driver(sm5714_fg_driver);
++
++MODULE_DESCRIPTION("Silicon Mitus SM5714 fuel gauge driver");
++MODULE_AUTHOR("map220v <map220v300@gmail.com>");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

@@ -1,0 +1,62 @@
+From 71de98d01d91c6569484bd8c7385d5c782f0ad4e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Sat, 3 Oct 2026 15:40:08 +0200
+Subject: [PATCH v1 0/4] media: qcom: camss: Galaxy A52 (SM7125) streaming fixes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A set of qcom-camss fixes found while bringing up the cameras on the
+Samsung Galaxy A52 4G (a52q, SM7125):
+
+1. Reset the per-output state on stream-off and never arm the VFE write
+   master without a queued buffer, so a restart does not re-use stale
+   addresses.
+2. Take the CSIPHY/CSID lane count from the active sensor instead of the
+   fixed DT lane map, so sensors that run fewer lanes in a given mode are
+   programmed correctly.
+3. VFE gen2: when only a single buffer is queued, point the double-buffered
+   write master's pong slot at that same buffer instead of leaving it at the
+   reset value 0 (which faults the SMMU as a write to IOVA 0). Mirrors the
+   gen1 path.
+4. CSIPHY 3ph: poll for the revision id on a cold power-up; the id latches
+   with a propagation delay after the block is first clocked, so the
+   immediate read returned 0.
+
+Dependency / base: this series sits on top of the a52q camera stack rather
+than on plain v7.3-rc5. Patch 2 adds a get_mbus_config op to the GC5035,
+IMX616, S5K3L6XX and S5KGW1P sensor drivers, which are themselves pending
+in separate media series; patches 1/3/4 touch the Gen2/C-PHY camss paths
+from the camss-cphy and camss-sc7180 series. Base commit used for these
+patches: v7.3-rc5 + media-camss-cphy + media-camss-sc7180 +
+media-sensor-{gc5035,imx616,s5k3l6xx,s5kgw1p}.
+
+Not independently tested on hardware by the submitter tooling; on-device
+verification pending (the gen2 pong fix was validated against a logged
+SMMU IOVA-0 fault but not re-streamed post-fix).
+
+Miroslav Mráz (4):
+  media: qcom: camss: reset output state and never arm WM without a
+    buffer
+  media: qcom: camss: take CSIPHY/CSID lane count from the active sensor
+  media: qcom: camss: vfe-gen2: never arm the write master with a zero
+    pong buffer
+  media: qcom: camss: csiphy-3ph: wait for the revision id on cold
+    power-up
+
+ drivers/media/i2c/gc5035.c                    | 15 +++++++
+ drivers/media/i2c/imx616.c                    | 11 +++++
+ drivers/media/i2c/s5k3l6xx.c                  | 11 +++++
+ drivers/media/i2c/s5kgw1p.c                   | 11 +++++
+ .../media/platform/qcom/camss/camss-csid.c    | 22 +++++++++-
+ .../qcom/camss/camss-csiphy-3ph-1-0.c         | 39 +++++++++++------
+ .../media/platform/qcom/camss/camss-csiphy.c  | 21 ++++++++--
+ drivers/media/platform/qcom/camss/camss-vfe.c | 40 ++++++++++++++++++
+ .../media/platform/qcom/camss/camss-video.c   | 20 ++++++---
+ drivers/media/platform/qcom/camss/camss.c     | 42 +++++++++++++++++++
+ drivers/media/platform/qcom/camss/camss.h     |  2 +
+ 11 files changed, 212 insertions(+), 22 deletions(-)
+
+-- 
+2.55.0
+

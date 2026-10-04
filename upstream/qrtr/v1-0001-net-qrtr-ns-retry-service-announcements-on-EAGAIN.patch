@@ -1,0 +1,78 @@
+From ea0b380936601824bf64983ff9e5f80788b2c85c Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Fri, 2 Oct 2026 19:57:48 +0200
+Subject: [PATCH v1] net: qrtr: ns: retry service announcements on -EAGAIN
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+When a remote node's HELLO is processed, announce_servers() sends a
+NEW_SERVER for every local service. If our own HELLO to that node has
+not gone out yet, qrtr_node_enqueue() fails with -EAGAIN, and
+announce_servers() returns on the first failure, so none of the
+remaining services are announced. The remote never learns about them.
+
+On the Samsung Galaxy A52 (SM7125) this hits on roughly one boot in
+five: the modem never sees rmtfs/tqftpserv, its init stalls and its
+watchdog fires 40 s later ("DOG detects stalled initialization").
+The only trace on the AP is "failed to announce new service" right
+after "remote processor modem is now up".
+
+Retry -EAGAIN for up to a second, and keep announcing the remaining
+services when one fails instead of aborting the whole list. Also log
+which service failed and why.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ net/qrtr/ns.c | 28 ++++++++++++++++++++--------
+ 1 file changed, 20 insertions(+), 8 deletions(-)
+
+diff --git a/net/qrtr/ns.c b/net/qrtr/ns.c
+index bcb090ee79d4..ab017485ce24 100644
+--- a/net/qrtr/ns.c
++++ b/net/qrtr/ns.c
+@@ -5,6 +5,7 @@
+  * Copyright (c) 2020, Linaro Ltd.
+  */
+ 
++#include <linux/delay.h>
+ #include <linux/module.h>
+ #include <linux/qrtr.h>
+ #include <linux/workqueue.h>
+@@ -226,14 +227,25 @@ static int announce_servers(struct sockaddr_qrtr *sq)
+ 
+ 	/* Announce the list of servers registered in this node */
+ 	xa_for_each(&node->servers, index, srv) {
+-		ret = service_announce_new(sq, srv);
+-		if (ret < 0) {
+-			if (ret == -ENODEV)
+-				continue;
+-
+-			pr_err("failed to announce new service\n");
+-			return ret;
+-		}
++		int tries = 0;
++
++		/*
++		 * A remote's HELLO can be handled before our own HELLO to it has
++		 * gone out, and until then qrtr_node_enqueue() returns -EAGAIN.
++		 * Retry briefly instead of giving up: a peer that misses these
++		 * announcements never learns about our services (e.g. a modem
++		 * then stalls waiting for rmtfs and its watchdog fires).
++		 */
++		do {
++			ret = service_announce_new(sq, srv);
++			if (ret != -EAGAIN)
++				break;
++			msleep(20);
++		} while (++tries < 50);
++
++		if (ret < 0 && ret != -ENODEV)
++			pr_err("failed to announce service %u:%u to node %u: %d\n",
++			       srv->service, srv->instance, sq->sq_node, ret);
+ 	}
+ 	return 0;
+ }
+-- 
+2.55.0
+

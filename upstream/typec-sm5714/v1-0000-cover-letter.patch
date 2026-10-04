@@ -1,0 +1,44 @@
+From c2507fae6202f4924a7ac683d646b7dd9bd329bc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Sat, 3 Oct 2026 15:36:07 +0200
+Subject: [PATCH v1 0/4] usb: typec: add Silicon Mitus SM5714 CC and MUIC drivers
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add bindings and drivers for the Type-C CC detection block and the MUIC
+data-role switch of the Silicon Mitus SM5714 PMIC (Samsung Galaxy A52 4G,
+a52q, SM7125). The fuel-gauge and charger blocks of the same chip are
+sent separately to the power-supply tree.
+
+The CC driver debounces the sink (host-mode) attach so the free-running
+DRP toggle on an unplugged port does not register and unregister the xHCI
+host a few times a second.
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Miroslav Mráz (4):
+  dt-bindings: usb: add Silicon Mitus SM5714 Type-C CC detection
+  usb: typec: add Silicon Mitus SM5714 Type-C CC driver
+  dt-bindings: usb: add Silicon Mitus SM5714 MUIC data switch
+  usb: typec: mux: add Silicon Mitus SM5714 MUIC data switch driver
+
+ .../bindings/usb/siliconmitus,sm5714-cc.yaml  |  94 ++++
+ .../usb/siliconmitus,sm5714-muic.yaml         |  62 +++
+ MAINTAINERS                                   |  13 +
+ drivers/usb/typec/Kconfig                     |  16 +
+ drivers/usb/typec/Makefile                    |   1 +
+ drivers/usb/typec/mux/Kconfig                 |  10 +
+ drivers/usb/typec/mux/Makefile                |   1 +
+ drivers/usb/typec/mux/sm5714-muic.c           | 161 +++++++
+ drivers/usb/typec/sm5714-cc.c                 | 424 ++++++++++++++++++
+ 9 files changed, 782 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/usb/siliconmitus,sm5714-cc.yaml
+ create mode 100644 Documentation/devicetree/bindings/usb/siliconmitus,sm5714-muic.yaml
+ create mode 100644 drivers/usb/typec/mux/sm5714-muic.c
+ create mode 100644 drivers/usb/typec/sm5714-cc.c
+
+-- 
+2.55.0
+

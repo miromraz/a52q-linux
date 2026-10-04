@@ -1,0 +1,4 @@
+# checkpatch.pl --strict (watchdog)
+total: 0 errors, 0 warnings, 0 checks, 20 lines checked
+
+/home/realni/linux-a52q/upstream/watchdog/v1-0001-watchdog-qcom-stop-a-bootloader-armed-watchdog-ac.patch has no obvious style problems and is ready for submission.

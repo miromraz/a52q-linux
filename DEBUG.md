@@ -967,3 +967,1662 @@ Branch a52q/cameras in ~/src/linux-upstream @ 72d3fcf802c4 (7.3-rc5). Two commit
 - gc5035: NOT STARTED. Old-style driver (no CCI helpers) from Figa 2020 v4 base; needs the most work.
   Reuse Figa v4 from patchwork (kernel.org API) for authorship/base; keep his From:/SoB if using his patch.
 No scratch O= build dir was created (stopped before compile-testing). No git gc/repack run.
+
+## 2026-09-30 late — 7.3 "HANG" ROOT-CAUSED: U-Boot-armed watchdog + modules unloadable (NOT a kernel hang)
+Channel: netconsole debug build (obs/a52q-mainline-dbg) + laptop listener in netns a52, AND a phone-side
+journald drop-in /etc/systemd/journald.conf.d/99-a52q-debug-sync.conf (SyncIntervalSec=1s) + enabled
+a52q-heartbeat.service (logs `hb <uptime> <udc state>` every 1 s). The persistent journal of the failed
+boot (`journalctl -b -1` on the 6.14 fallback) is the better channel: it survives the reset.
+- netconsole works (g_ether.host_addr pins the host MAC; netpoll.carrier_timeout=30). Log stops at
+  12.78 s = deferred-probe timeout ONLY because nothing else is printed; NOT a freeze (misread at first;
+  disabling the DSI node changed nothing, which disproved the DSI/refgen hang theory).
+- Heartbeat: userspace alive, UDC "configured", until 28.1 s, then hard reset. regulator_ignore_unused: same.
+- CAUSE: U-Boot .config has WDT_QCOM=y, WATCHDOG_AUTOSTART=y, WATCHDOG_TIMEOUT_MSECS=30000 → U-Boot leaves
+  the APSS WDT running at hand-off. 6.14 loads qcom_wdt (=m) from modules-load.d at 9 s (driver sees
+  HW_RUNNING and pets it). On 7.3 qcom_wdt=m never loads: sysext merge fails ("Failed to mount sysext
+  (type overlay) ... No such device") because OVERLAY_FS=m and the stock initrd only has the 6.14
+  overlay.ko → no 7.3 module is ever available → bite at ~28 s kernel time.
+- Also found: REGULATOR_QCOM_REFGEN=m → msm_dsi defers forever ("Failed to get supply 'refgen'").
+FIX (pushed obs/a52q-mainline 51966e7 + -dbg eccc265): a52q_defconfig QCOM_WDT=y, OVERLAY_FS=y,
+REGULATOR_QCOM_REFGEN=y. uki-test.sh: EXTRA_CMDLINE now %q-quoted (multi-word args broke the ssh env).
+Remove the journald sync drop-in + heartbeat unit when 7.3 bring-up is done (extra flash writes).
+
+## 2026-10-01 — Camera sensor upstream series DONE (s5k3l6xx, imx616, s5kgw1p)
+Branch a52q/cameras in ~/src/linux-upstream, 6 commits on top of the 2 ak7374 ones
+(base f5b2a1c14d25). One binding + one driver commit per sensor. Sources copied
+verbatim from ~/src/linux-sm7125 obs/sm7125; only changes: MODULE_AUTHOR set to a
+real name (imx616/s5kgw1p), s5k3l6xx MODULE_LICENSE "GPL v2"->"GPL", modes.h given
+an SPDX line and reflowed to <=100 cols (register VALUES byte-identical: 928 imx616
+/ 4617 s5kgw1p entries diffed equal). s5k3l6xx keeps the Purism copyright/authors
+and credits them in the commit + cover (From: is Miroslav; no forged SoB).
+- DT bindings written from scratch under Documentation/.../media/i2c/:
+  sony,imx616.yaml (4-lane D-PHY, vio/vana/vdig, reset-gpios, link 516 MHz),
+  samsung,s5k3l6xx.yaml (4-lane D-PHY, vddio/vdda/vddd, rstn-gpios, clock-frequency,
+  link 595.2 MHz), samsung,s5kgw1p.yaml (3-trio C-PHY bus-type=4, 5 supplies incl
+  vaf/vcustom, reset-gpios, link 1 GHz).
+- MAINTAINERS: 3 new entries (M: Miroslav, L: linux-media, S: Maintained); binding F:
+  in the binding commit, driver F: in the driver commit so each patch touches
+  MAINTAINERS (no checkpatch "does MAINTAINERS need updating" warning).
+- checkpatch --strict: 0 errors, 0 warnings on all 6. Remaining CHECKs are idiomatic
+  --strict only: "multiple assignments" (fse->min_width = fse->max_width = ... in
+  enum_frame_size, same as every peer sensor driver) and "blank line after decl"
+  (#define NUM_SUPPLIES ARRAY_SIZE(...) right after the array). Left as-is.
+- dt_binding_check: all 3 yaml + examples validate clean (dtschema 2026.9, yamllint
+  1.38 via venv; the make LINT/STYLE stage misfires with DT_SCHEMA_FILES on dtschema
+  2026 - ran yamllint + example validation directly).
+- W=1 compile: arm64 defconfig + the 3 symbols (O= dir in tmpfs, disk was at 831 MB),
+  native aarch64-linux-gnu-gcc 16.1.0 - all 3 .o build with ZERO warnings. Build dir
+  deleted afterwards.
+- Series: ~/linux-a52q/upstream/cameras/{imx616,s5k3l6xx,s5kgw1p}/ (cover + 2 patches
+  + to-cc.txt from get_maintainer.pl).
+- OPEN: s5kgw1p capture needs C-PHY in camss (not mainline yet) - noted in its cover.
+  s5k3l6xx binding uses rstn-gpios/clock-frequency to match the working driver;
+  reviewers may ask for reset-gpios/assigned-clock-rates (driver change, not re-tested).
+
+## 2026-10-01 — smp2p sleepstate ported to mainline (branch a52q/smp2p)
+Ported from obs/sm7125 e84f35c88 + 885022f6d into worktree ~/src/linux-a52q-smp2p
+(sparse checkout — disk critical). 4 commits on a52q/smp2p:
+- 13259c3f (Richard Acayan): dt-bindings qcom,smp2p sleepstate entry (carried from
+  patchwork 14837140, his From/SoB preserved).
+- 6d6e9f47: new dt-binding qcom,smp2p-sleepstate.yaml for the consumer node
+  (Acayan's patch is entry-only; the "qcom,smp2p-sleepstate" compatible needs its
+  own binding or dtbs_check warns).
+- e6243b0d (miromraz, orig author preserved): driver smp2p_sleepstate.c + Kconfig +
+  Makefile (both source commits squashed; bit-from-DT form).
+- c7dc0c39: a52q dts — sleepstate/sleepstate_see entries on &{/smp2p-lpass} + the
+  smp2p-sleepstate consumer node (bit 12, IRQ_TYPE_EDGE_RISING).
+Checks: checkpatch --strict 0 err/0 warn (only generic "MAINTAINERS?" new-file notice,
+false pos — files under existing qcom wildcards). dt-doc-validate OK on both bindings
+(schema + examples). SKIPPED (disk <1GB, ~827M): dt_binding_check make target,
+dtbs_check on sm7125-samsung-a52q.dtb, W=1 build of the .o — rerun when disk frees.
+Open: SoB/author identity mixed (seznam driver vs techmania tree) — normalise before
+sending upstream.
+
+## 2026-10-01 — Adreno 618 GPU bringup (SM7125 / a52q), mainline v7.3-rc5
+
+Symptom on device: `missing support for speed-bin: 159`, `adreno_idle timeout
+... rptr/wptr = 0/C`, `gpu hw init failed: -22`, hangcheck lockups, `GMU
+firmware fault`, `failed to power off SPTPRAC: 0xa8`. Chip id 0x06010800 (A618).
+
+Root cause: a52q top compatible is "samsung,a52q","qcom,sm7125", so the GPU
+matched the generic (no .machine) A618 entry in a6xx_catalog.c, which (a) has no
+speed-bin 159 -> fuse_to_supp_hw() returns UINT_MAX and enables *every* OPP
+including 825 MHz TURBO_L1, and (b) has no .hwcg. Overvolted top corner +
+missing clock gating => GMU/SPTPRAC power-up failure.
+
+Fix (branch a52q/gpu off a52q/mainline; worktree was forced onto tmpfs because
+/ had <1 GB free):
+- drm/msm/adreno: new `.machine = "qcom,sm7125"` catalog entry (chip 0x06010800,
+  a615_hwcg, a615_zap.mbn, speedbins {0,0},{159,3}). Chose a per-SoC entry over
+  extending the shared generic entry (what the sm7125-mainline fork did) so hwcg
+  + bin 159 stay scoped to SM7125 and sc7180 chromebooks (bins 0/169/174) are
+  untouched. Mirrors the existing sm7150 entry. Lookup returns the first
+  machine-matching entry, so it must (and does) sit before the generic one.
+- arm64: dts: qcom: sm7125.dtsi overrides &gpu_opp_table: adds 750 MHz NOM_L1
+  (opp-supported-hw <0x08> = BIT(3) = bin 159) and widens 650/565/430/355/267/180
+  MHz from <0x07> to <0x0f>. 800/825 MHz stay sc7180-only. Done in sm7125.dtsi,
+  not sc7180.dtsi, so all SM7125 SKUs get it and sc7180 is untouched.
+
+Bin 159 -> 750 MHz NOM_L1 confirmed via downstream atoll mapping
+(FMAX/4.8 + 2, round up: 750/4.8 + 2 = 158.25 -> 159). Original work:
+Vitalii Skorkin (nikroks@mainlining.org), sm7125-mainline commits 95df926 /
+31a7f8d / c6779e7 — credited in the commit bodies (no Co-authored-by per task).
+No pending upstream patch found (patchwork API was Anubis-blocked, so unverified).
+
+Verify: defconfig+DRM_MSM on tmpfs; `W=1 a6xx_catalog.o` compiles with zero
+warnings; `CHECK_DTBS=y sm7125-samsung-a52q.dtb` clean. Decompiled dtb confirms
+a52q (BIT(3)) OPP set = 180/267/355/430/565/650/750 MHz (no 800/825).
+checkpatch --strict: DTS clean; DRM has one false-positive CHECK
+("line ends with '('") from the ADRENO_SPEEDBINS() macro used file-wide.
+
+## 2026-10-01 - DT gap close: NFC, GPI DMA, key wakeup (branch a52q/dtfix)
+
+Worktree ~/src/linux-a52q-dtfix on a52q/dtfix (off a52q/mainline). Disk was
+critical (~800M free, contended by parallel agents); a full worktree checkout
+ran out of space, so this is a git sparse-checkout (arch/arm64, scripts,
+include, Documentation/devicetree, all Kconfig/Makefile + checkpatch sentinels).
+Build out dir was on tmpfs (/tmp) to avoid the full rootfs.
+
+Commits (upstream-style, no Signed-off-by yet, no Co-authored-by):
+- sc7180: add gpi_dma0@800000 / gpi_dma1@a00000 (qcom,sm6350-gpi-dma) and wire
+  tx/rx dmas on all 20 geni I2C/SPI SEs. Fixes "Failed to get tx DMA ch" at
+  i2c@a84000 (i2c7). Addresses/IRQs/masks/SMMU IDs taken from the 6.14 fork
+  sc7180.dtsi and cross-checked against sm6350.dtsi; style follows sm8250.dtsi
+  (uart SEs deliberately get no dmas).
+- sm7125-samsung-a52q: NFC S3NRN4V on i2c0@0x27 + vreg_nfc_pvdd (GPIO68) +
+  nfc_default pinctrl. compatible samsung,s3nrn4v is in the mainline binding.
+  qupv3_id_0 is already status=okay in common.dtsi, so i2c0 only needs enabling.
+- sm7125-samsung-common: wakeup-source on button-vol-up and event-hall-sensor.
+
+REVIEWER FLAGS:
+- nfc_default int-pins lists "gpio31" alongside the IRQ "gpio37" (both
+  bias-pull-down), ported verbatim from the RF-poll-verified 6.14 DT. gpio31 is
+  NOT referenced by nfc@27; purpose unknown (possible downstream clk/fw line).
+  Kept to preserve the verified config; drop it if it has no NFC role.
+- sc7280.dtsi is absent from this a52q/mainline tree, so sm8250.dtsi/sm6350.dtsi
+  were used as the upstream dmas-wiring reference instead.
+
+Verification (make O=<tmpfs> ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+CHECK_DTBS=y qcom/sm7125-samsung-a52q.dtb, under flock a52build.lock):
+- dtbs_check: 0 warnings before, 0 warnings after (dt-validate clean; dtschema
+  2026.6). dtb builds. The first post-defconfig run printed 5 spurious "Error in
+  reading or end of file" while processed-schema.json was being generated; gone
+  on rebuild and on direct dt-validate.
+- checkpatch.pl --strict: all 3 commits "0 errors, 0 warnings, 0 checks".
+
+Kconfig symbols these DT nodes need (defconfig NOT touched, per task):
+- NFC node: CONFIG_NFC_S3FWRN5=m + CONFIG_NFC_S3FWRN5_I2C=m (+ CONFIG_NFC).
+- GPI DMA + dmas wiring: CONFIG_QCOM_GPI_DMA=y/m (else geni stays FIFO-mode).
+- key wakeup-source: none (DT-only PM wakeup).
+- Unrelated pre-existing item (not from these DT changes, handled in defconfig
+  elsewhere): CONFIG_TYPEC_MUX_SM5714 for the already-merged typec@33 graph.
+
+## CAMSS + CCI mainline enablement for sc7180/sm7125 (2026-10-01)
+Branch a52q/camss (worktree ~/src/linux-a52q-camss, off a52q/mainline). Goal: upstream-submittable
+sc7180 CAMSS + CCI so a52q cameras work on mainline. 4 commits (no Co-authored-by):
+- dt-bindings: media: qcom,camss: Add SC7180 CAMSS binding (new qcom,sc7180-camss.yaml, modelled on
+  sm6350; 10 reg, 24 clocks, 10 irqs, 4 icc cam_ahb/cam_hf_0/1_camnoc/cam_sf_camnoc, 3 iommus,
+  3 power-domains ife0/ife1/top).
+- media: qcom: camss: Add support for SC7180 (CAMSS_7180 enum + csiphy/csid/vfe/icc _sc7180 tables +
+  of_match; vfe.c: CAMSS_7180 added to the two VFE-170 switch groups).
+- dt-bindings: i2c: qcom,i2c-cci: Add qcom,sc7180-cci (CCI v2, msm8996-cci fallback).
+- arm64: dts: qcom: sc7180: Add CCI and CAMSS nodes (cci0@ac4a000, cci1@ac4b000, isp@acb3000, all
+  status=disabled; cci0/1/2 tlmm pinctrl; added #include qcom,camcc-sc7180.h). NO a52q sensor nodes
+  (separate agent).
+Prior art credited via Link: George Chan's unmerged sm7125 RFT v3 (patchwork 13709404..).
+
+Porting notes (6.14 fork -> mainline 7.3-rc5):
+- Fork csid tables used bare-string regulators (.regulators = {"vdda-phy","vdda-pll"}); mainline field
+  is regulator_bulk_data[] -> compile error. Dropped to .regulators = {} (matches sm6350; fork DT had
+  no vdda supplies anyway -> dummy regulators, functionally identical). Supplies also dropped from the
+  binding.
+- Added csiphy .id = 0..3 (mainline needs it for base offset / clock matching; fork omitted).
+- sc7180 is genuinely distinct from sm6350 in-tree (different clock names, 3 vs 4 CSID/VFE, icc names),
+  so ported the fork's own sc7180 tables rather than reusing sm6350.
+
+C-PHY DEFERRED (not in these commits). Mainline camss.c:4761 hard-rejects any bus-type != CSI2_DPHY,
+so the main S5KGW1P (C-PHY) will NOT stream until C-PHY lands; the 4 D-PHY sensors (UW/front/depth,
++macro via mux) are unaffected. David Heidelberg's C-PHY v9 (patchwork 14719209-213) is state
+"handled-elsewhere" (not merged); it touches camss-csiphy-3ph-1-0.c (the file sc7180 uses) but adds a
+Gen2 v1.1 path - fit vs sc7180's csiphy_ops_3ph_1_0 not yet verified. Rebase our C-PHY on his series
+once it lands, as a follow-up.
+
+Checks (aarch64-linux-gnu- host gcc; out dir built+deleted, disk stayed >2.5G):
+- checkpatch.pl --strict: clean on all 4 (fixed 4 DTS >100col interconnect lines by splitting).
+- dt-doc-validate + dt_binding_check (DT_SCHEMA_FILES both yamls): rc=0, no errors.
+- W=1 build of drivers/media/platform/qcom/camss/ (CAMSS=m): rc=0, zero warnings.
+- sm7125-samsung-a52q.dtb builds clean; dt-validate of the dtb vs both processed schemas: rc=0
+  (isp@acb3000/cci@ nodes confirmed present in the dtb).
+
+Remaining for on-device test: enable camss+cci0/cci1 in the a52q board dts with sensor nodes
+(other agent), set CONFIG_VIDEO_QCOM_CAMSS/I2C_QCOM_CCI, boot, verify the 4 D-PHY cameras via
+libcamera. Main cam needs the C-PHY follow-up.
+
+## 2026-10-01 — OIS MCU mainlined + AK7374 rebased (branch a52q/ois)
+Upstream-submittable OIS MCU driver + DT binding, plus the AK7374 VCM series,
+prepared on the tmpfs worktree `git -C ~/src/linux-upstream worktree add
+/tmp/claude-1000/wt-ois -b a52q/ois a52q/mainline`. Four commits on a52q/ois
+(authored Miroslav Mráz <miroslav.mraz@techmania.cz>, no Co-authored-by):
+- dt-bindings: media: add Samsung camera OIS MCU
+- media: i2c: add Samsung camera OIS MCU driver
+- dt-bindings: media: asahi-kasei,ak7375: add AK7374   (cherry-pick d1809e945)
+- media: i2c: ak7375: add support for AK7374           (cherry-pick f5b2a1c14)
+
+### Upstream shape decisions (for the reviewer)
+- Dropped the product-specific `samsung,a52q-ois-mcu` compatible for a
+  vendor-prefixed `samsung,ois-mcu`; driver renamed
+  drivers/media/i2c/a52q-ois-mcu.c -> samsung-ois-mcu.c,
+  CONFIG_VIDEO_A52Q_OIS_MCU -> CONFIG_VIDEO_SAMSUNG_OIS_MCU (in the
+  "Lens drivers" menu), module `samsung-ois-mcu`. A52q-specific tuning
+  (gyro orientation, angle-comp 0.834, gyro scale 114) stays as the
+  driver's built-in module tuning; a second board would add DT props later.
+- Kept it a plain media-i2c companion driver, NOT a full V4L2 subdev: it
+  exposes no controls or pads, so subdev boilerplate buys nothing. If a
+  reviewer wants it in the media graph, that's a follow-up.
+- RUNTIME-PM TRIGGER FIX (the DEBUG gap from 2026-09-30): the driver now
+  reads a `samsung,image-sensor` phandle and at probe creates a
+  device_link_add(&sensor->dev /*consumer*/, ois /*supplier*/,
+  DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME), returning -EPROBE_DEFER until the
+  sensor i2c device exists. This makes the harness's proven sensor->OIS link
+  permanent WITHOUT touching the (not-yet-upstream) sensor driver: the
+  sensor's stream-on runtime_resume resumes+inits the OIS first, suspends it
+  after. Link torn down in remove.
+
+### Checks (all green)
+- checkpatch.pl --strict --no-summary: 0/0 on all four commits.
+- dt_binding_check on samsung,ois-mcu.yaml AND asahi-kasei,ak7375.yaml: pass
+  (full processed-schema.json built; only skipped optional yamllint). dtschema
+  2026.6 system-wide, ~/.local/bin/dt-validate — no venv needed.
+- W=1 cross-build (aarch64-linux-gnu-gcc 16.1.0, arm64 defconfig+olddefconfig,
+  under flock /tmp/claude-1000/a52build.lock): drivers/media/i2c/samsung-ois-mcu.o
+  and ak7375.o both compile with ZERO warnings. tmpfs was 100% full (other
+  agents' 1.8G worktrees), so the out dir went to a throwaway ~/.a52ois-build
+  on root fs and was deleted after (not tmpfs — forced deviation).
+
+### AK7374 rebase note
+Cherry-picked cleanly onto a52q/mainline; no changes needed. Base ak7375.c /
+asahi-kasei,ak7375.yaml unchanged from when the series was written.
+CONFLICT WARNING (do not block): the two pending ak7375 patches named in the
+task — Jan-Michael Brummer's AK7377 and Cong Nguyen's leak fix — are NOT yet in
+the a52q/mainline base. When they land, AK7377 will textually collide with the
+AK7374 additions (same compatible enum in the yaml, same of_device_id table and
+adjacent ak73xx_chipdef block in ak7375.c); trivially re-orderable. Cong's leak
+fix touches probe/remove error paths and should not conflict with the pure
+additions.
+
+### patchwork check — BLOCKED
+patchwork.kernel.org (and lore) are behind Anubis proof-of-work; WebFetch,
+curl with a browser UA, and a scripted PoW solve all returned the challenge
+page, not JSON. Could not query for a pending Samsung OIS MCU driver to reuse.
+Proceeded on knowledge (no upstream/pending Samsung OIS MCU driver known) plus
+the task-supplied pending-ak7375 patch names. Re-run the patchwork query from a
+real browser session before actually posting the OIS series.
+
+### DT node snippet (mainline a52q dts has NO camera i2c bus yet)
+a52q/mainline's sm7125-samsung-a52q.dts has only camera_region memory — no
+i2c10 / i2c-gpio cam bus — so the OIS node was NOT added to the dts (the camss
+agent owns adding the camera i2c buses). When that bus exists, add (bit-banged
+i2c-gpio on the QUP i2c10 pins because the MCU stretches SCL during flash
+access; shares the main actuator rails l7/l3; add the sensor phandle for the PM
+link):
+
+    /* main-camera OIS: STM32G MCU at 0x62, bit-banged i2c (gpio86/87) */
+    i2c-cam-ois {
+        compatible = "i2c-gpio";
+        sda-gpios = <&tlmm 86 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+        scl-gpios = <&tlmm 87 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+        i2c-gpio,delay-us = <5>;
+        i2c-gpio,timeout-ms = <1000>;
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        ois@62 {
+            compatible = "samsung,ois-mcu";
+            reg = <0x62>;
+            vdd-supply = <&vreg_cam_l7>;
+            vio-supply = <&vreg_cam_l3>;
+            reset-gpios = <&tlmm 32 GPIO_ACTIVE_LOW>;
+            boot0-gpios = <&tlmm 43 GPIO_ACTIVE_HIGH>;
+            samsung,image-sensor = <&s5kgw1p>;  /* main sensor: drives OIS PM */
+        };
+    };
+
+STILL OPEN (unchanged): EFS gyro offset (0x0248) hardcoded 0; real on/off
+image comparison needs a working capture; DT probe/bind of the new compatible
+not booted.
+
+## 2026-10-01 — LPASS audio stack to mainline v7.3-rc5 (branch a52q/lpass)
+
+Worktree /tmp/claude-1000/wt-lpass on a52q/lpass, based on a52q/audio
+(ec32d4a3, tas2562 frame-sync patch). 5 commits, nothing else touched.
+
+Key finding that reshaped the plan vs GAP item 3 / DEBUG blocker list:
+- Blocker 1 (no sc7180 LPI pinctrl driver): NOT needed. Mainline already has
+  the generic LPI framework + pinctrl-sc7280-lpass-lpi.c. The SC7180 LPI TLMM
+  is register-identical to SC7280 (both 15 pins; the LPI_PINGROUP offset tables
+  are byte-identical — sm6350 is the 14-pin odd one). So instead of duplicating
+  a driver (a reviewer would reject the copy), the SC7280 binding now accepts
+  "qcom,sc7180-lpass-lpi-pinctrl" as a fallback pairing and the existing SC7280
+  driver binds via the 2nd compatible. This is what the 6.14 fork did too.
+- Blocker 3 (Quinary-MI2S machine hack): NOT ported. The fork's sm8250.c hack
+  did 3 things on the shared QUINARY_MI2S_RX case (would regress fp5 which has
+  the identical 2×aw88261-on-quinary topology): (a) NB_IF frame-start, (b)
+  set_tdm_slot(0x3,0x3,2,16), (c) per-codec fmt loop. Analysis:
+    * tas2562 L/R separation is a runtime "ASI1 Source" kcontrol (Left/Right/
+      LeftRightDiv2), set by UCM — NOT a slot. Same as fp5/aw88261 which rely on
+      the generic NB_NF I2S case + awinic,audio-channel. So no machine change
+      for channel routing.
+    * The one fatal item is RXLEN: tas2562 defaults RX *slot length* to 32-bit
+      (TDM_CFG2, not in reg_defaults); hw_params only sets RX *word length*
+      (RXWLEN). On the 16-bit MI2S frame the slot/BCLK mismatch = "TDM clock
+      error" = no audio. Fixed the upstream-correct way (blocker's hint): new
+      per-codec DT prop "ti,rx-slot-width", applied once at component probe.
+      Both amps get ti,rx-slot-width=<16>. No machine driver touched; fp5
+      (no tas2562) unaffected.
+    * NB_IF frame-start: the fork needed it *with* its forced-TDM config ("with
+      their default frame start the channels come out swapped"). In plain I2S
+      mode (generic case) this should not recur; ec32d4a3 already gives the
+      codec the NB_IF capability if a follow-up proves it's needed. THIS IS THE
+      RISKIEST ON-DEVICE ITEM (see below).
+
+Commits (a52q/lpass, no Co-authored-by, author Miroslav Mráz):
+  67b8e5b dt-bindings: pinctrl: qcom: allow sc7180 LPASS LPI TLMM
+  deed152 dt-bindings: ASoC: tas2562: add ti,rx-slot-width
+  1ad0511 ASoC: tas2562: pin the RX slot width from the device tree
+  1db2ba9 arm64: dts: qcom: sc7180: add LPASS audio macros, SoundWire, LPI TLMM
+  4daf92c arm64: dts: qcom: sm7125-samsung-a52q: speakers, WCD938x, sound card
+
+sc7180.dtsi: added rxmacro/txmacro/vamacro (sm8250 compatibles, HW-verified),
+swr1/swr2 (soundwire-v1.5.1), lpass_tlmm (sc7180+sc7280 fallback, pin states
+tx_swr/rx_swr/i2s1). ALL status=disabled by default so trogdor is untouched.
+a52q enables them + i2c-gpio speaker bus (2×tas2562 @0x4c/0x4d, gpio88/89 SDA/
+SCL, INT gpio90, EN gpio94), wcd938x over swr, qcom,sm8250-sndcard with speaker
++ WCD playback/capture DAI links (Quinary MI2S / RX_CODEC_DMA_RX_0 /
+TX_CODEC_DMA_TX_3). Reused the mainline q6afe/q6asm/q6routing tree already in
+sc7180.dtsi.
+
+Chose sm8250 macro compatibles verbatim (as the fork, HW-proven) rather than
+adding sc7180-prefixed fallbacks to 3 macro bindings — minimal, dtbs_check-clean.
+A reviewer may ask for qcom,sc7180-lpass-*-macro fallbacks; cheap follow-up.
+Dropped ti,vmon-slot-no (missing from the binding; I/V sense capture is not
+routed on this card, driver default is harmless) — noted as a pre-existing
+binding gap, not fixed here to keep scope tight.
+
+Verification (native x86 host, aarch64-linux-gnu- cross, O= on real disk,
+flock a52build.lock; out dir + build worktree deleted after):
+- CHECK_DTBS=y qcom/sm7125-samsung-a52q.dtb: builds, 0 dtbs_check warnings.
+- CHECK_DTBS on sc7180-trogdor-coachz-r1.dtb (validates the new disabled
+  nodes): 0 warnings.
+- dt-doc-validate on both changed yamls: OK. dt_binding_check ran CHKDT clean
+  (DTEX example-compile misfires with DT_SCHEMA_FILES on dtschema 2026, known);
+  bindings are validated in practice by the clean a52q dtbs_check.
+- W=1 sound/soc/codecs/tas2562.o (native aarch64 gcc): 0 warnings.
+- checkpatch --strict -g: 4/5 commits 0/0/0; sc7180.dtsi has 2 "line >100"
+  warnings on the q6afecc NPL_MCLK clock lines — identical to 142 accepted
+  lines in sm8250.dtsi, left as-is.
+
+defconfig symbols the stack needs (all =m unless noted):
+  PINCTRL_SC7280_LPASS_LPI (selects PINCTRL_LPASS_LPI) — binds lpass_tlmm
+  SND_SOC_QDSP6 (q6afe/q6asm/q6routing/q6afe-clocks; needs the ADSP+APR already
+    enabled), SND_SOC_SM8250 (the qcom,sm8250-sndcard machine driver),
+  SND_SOC_LPASS_VA_MACRO, SND_SOC_LPASS_RX_MACRO, SND_SOC_LPASS_TX_MACRO,
+  SOUNDWIRE + SOUNDWIRE_QCOM, SND_SOC_WCD938X + SND_SOC_WCD938X_SDW,
+  SND_SOC_TAS2562, I2C_GPIO (bit-banged amp bus).
+  (a52q_defconfig already carries SOUNDWIRE_QCOM/QDSP6 per GAP; add the rest.)
+
+Needs on-device verification (never booted):
+  1. Speaker: does plain I2S NB_NF + ti,rx-slot-width=16 produce clean audio,
+     or does a52q still need NB_IF frame-start like the fork? RISKIEST ITEM.
+     If distorted/swapped: the ec32d4a3 codec capability is there; wire NB_IF
+     per-card without touching the shared sm8250.c QUINARY case (e.g. a codec
+     DT prop or a card-scoped hook) — do NOT re-add the fork's global hack.
+  2. UCM must set each amp's "ASI1 Source" (Left/Right) for stereo.
+  3. WCD938x earpiece/mic/headset over SoundWire; MBHC thresholds copied from
+     the fork (Samsung values) — verify button/headset detection.
+  4. tas2562 INT is IRQ_TYPE_LEVEL_LOW (fork used IRQ_TYPE_NONE); confirm no
+     irq storm.
+
+## Mainline camera DT (a52q/camdt) — 2026-10-01
+
+Branch `a52q/camdt` (worktree `/tmp/claude-1000/wt-camdt`), built on `a52q/camss`
+(SC7180 CAMSS + CCI, disabled cci0/cci1/camss in sc7180.dtsi). Cherry-picked the
+camera driver/binding commits from `a52q/cameras`: AK7374 (ak7375), IMX616,
+S5K3L6XX, S5KGW1P (bindings + drivers). Added the a52q camera DT in three commits
+(all in sm7125-samsung-a52q.dts only — none of it is shared with a72q, so nothing
+went into the common dtsi):
+  1. S2MPB03 camera PMIC on an i2c-gpio bus (gpio25/26) + 2 GPIO fixed LDOs.
+  2. Sensors + CAMSS: IMX616 front (CSIPHY2, D-PHY 4-lane, MCLK4), S5K3L6XX UW
+     (CSIPHY3 via a gpio66 video-mux, D-PHY 4-lane, MCLK2), S5KGW1P main (CSIPHY0,
+     C-PHY 3-trio, MCLK0); camcc/cci0/cci1/camss enabled; MCLK pinctrl.
+  3. AK7374 VCM + main/front module EEPROMs (at24) on i2c9, lens-focus link.
+
+Checks (tmpfs was full at 49M, so O= went to /home/realni/.cache/a52camdt-out on
+rootfs instead of tmpfs; deleted afterwards; system dtschema 2026.6, no venv):
+  - `make CHECK_DTBS=y qcom/sm7125-samsung-a52q.dtb`: 0 warnings.
+  - checkpatch --strict on the 3 DT patches: 0 errors / 0 warnings / 0 checks.
+  - dt_binding_check on the 3 amended sensor bindings: clean.
+
+Porting notes vs the working 6.14 obs DT (property names differ under the mainline
+bindings' unevaluatedProperties):
+  - data-lanes are 1-based on the sensor endpoints (imx616/s5k3l6xx <1 2 3 4>,
+    s5kgw1p <1 2 3>); the CAMSS csiphy endpoints stay 0-based.
+  - Dropped `power-domains = <&camcc TITAN_TOP_GDSC>` from the sensor nodes (not in
+    the sensor bindings; matches db845c/ov8856, GDSC held by CAMSS/CCI).
+  - Dropped `vdda-phy-supply`/`vdda-pll-supply` from &camss (the qcom,sc7180-camss
+    binding has no supply properties).
+  - Renamed the i2c-gpio bus i2c-cam-pmic -> i2c-campmic (i2c-controller nodename
+    regex allows only one `-[a-z0-9]+` segment; the old name also blocked the child
+    schema so #address-cells and the pmic child were flagged).
+  - MCLK rate set via assigned-clock-rates (imx616/s5kgw1p read clk_get_rate);
+    s5k3l6xx additionally keeps clock-frequency (its driver reads it).
+
+Binding fixes folded into their cherry-picked commits (drivers require them, the
+bindings were incomplete/wrong):
+  - all three sensor bindings: added `clock-names: const mclk` (drivers do
+    devm_clk_get(dev,"mclk")); updated required + examples.
+  - samsung,s5kgw1p.yaml: bus-type `const: 4` (D-PHY) was wrong for a C-PHY sensor
+    whose driver presets V4L2_MBUS_CSI2_CPHY -> changed to `const: 1` (C-PHY); DT
+    uses MEDIA_BUS_TYPE_CSI2_CPHY on both the sensor and csiphy0 endpoints.
+
+Known limitations (noted, not blockers):
+  - Main S5KGW1P is C-PHY. The mainline CAMSS driver on a52q/camss has no C-PHY RX
+    support (that lives only in the a52q/cameras camss hack), so the main camera is
+    described but will not stream until C-PHY receive support is merged.
+  - Macro + depth cameras are GalaxyCore GC5035 — no mainline binding/driver exists,
+    so both are omitted. The video-mux keeps a reserved (unconnected) input port@1
+    for the macro; CSIPHY1 (depth) is left unused. Add both when a GC5035 binding
+    lands.
+  - The downstream cci "cci-camnoc" interconnect vote (clock-wedge workaround) was
+    not ported; it is a runtime tuning, not hardware wiring, and the cci binding
+    doesn't model it.
+
+defconfig symbols needed to build/use these: VIDEO_QCOM_CAMSS, I2C_QCOM_CCI,
+VIDEO_IMX616, VIDEO_S5K3L6XX, VIDEO_S5KGW1P, VIDEO_AK7375, VIDEO_MUX, MULTIPLEXER,
+MUX_GPIO, EEPROM_AT24, I2C_GPIO, REGULATOR_S2MPB03 (plus the usual
+MEDIA_CONTROLLER / VIDEO_V4L2 / V4L2_FWNODE deps).
+
+## 2026-10-01 01:15 — MAINLINE 7.3 BOOTS TO USERSPACE (obs/a52q-integ 70a83b1, UKI a52qtest_0.26.1001.1)
+Reached boot completion ("degraded": only hexagonrpcd failed), SSH over usb0. Module install: ~/linux-a52q/mods73.sh.
+WORKS on 7.3: modem (mmcli sees it), ADSP, IPA, USB gadget net, sm5714 charger+FG, DSI panel s6e3fc3 + backlight,
+keys, vibrator, Type-C port0+partner, watchdog, **GPU A618** (fences retire, devfreq 180-750 MHz — better than 6.14,
+where zap never loaded).
+BROKEN on 70a83b1 and root-caused (fixes in branch a52q/bootfix, in obs/a52q-integ 4c13f42):
+- Wi-Fi: qcom_pd_mapper has no "qcom,sm7125" entry → no WLAN PD → no WLFW (qrtr-lookup lacks svc 69).
+- Bluetooth: qcom_geni_serial "Invalid line -19": with NO serial aliases of_alias_get_highest_id() = -ENODEV and
+  ida_alloc_range(min<0) fails → generic mainline bug; clamp fix + serial1=&uart3 alias.
+- Touch: geni i2c7 (a84000) in GPI mode, no GPI DMA nodes → a52q/dtfix gpi_dma (merged in 53cbc3c+).
+- Sensors: ADSP fastrpc lacked qcom,non-secure-domain → only /dev/fastrpc-adsp-secure → hexagonrpcd fails.
+- NFC: DT node was not in 70a83b1 (a52q/dtfix).
+Phone state: default = 7.3 test UKI (blessed); fallbacks a52q614_0.26.0930.1.efi (sha 7237fbd9, good 6.14) and stock.
+a52q-failsafe73.service is still enabled (deletes a52qtest_* after 5 min on 7.x unless /run/keep73) — remove
+once 7.3 is the default.
+Integration branch: a52q/integ in ~/src/linux-upstream = a52q/mainline + gpu, smp2p, audio, dtfix, bootfix, lpass,
+ois, camdt (+ debian/defconfig commits). Pushed as github obs/a52q-integ; OBS package linux-sm7125-mainline now
+scmsyncs that branch (NOT obs/a52q-mainline any more).
+
+## 2026-10-01 — CAMSS C-PHY receive for SC7180/SM7125 (branch a52q/cphy)
+
+Worktree `/tmp/claude-1000/wt-cphy`, branch `a52q/cphy` off `a52q/camdt`. Goal:
+main camera S5KGW1P (3-trio C-PHY on CSIPHY0) streams on mainline.
+
+Base chosen: **David Heidelberg's C-PHY v9 series** (patchwork series 1136910,
+ids 14719206-14719214, state "handled-elsewhere"). It was NOT blocked — fetched
+via the patchwork REST API (`/api/1.3/patches/<id>/` -> the JSON `mbox` URL; the
+`/api/.../mbox/` path 404s, use the web `.../patch/<msgid>/mbox/` from the JSON).
+Applied all 9 via `git am` (From/SoB preserved, David Heidelberg <david@ixit.cz>),
+they apply cleanly on a52q/camdt. Then one own commit on top:
+
+- `media: qcom: camss: Add C-PHY support for SC7180` (60a32360c60c). Adds
+  `lane_regs_sc7180_cphy[]` — the CSIPHY v1.2 3-phase table flattened from our
+  6.14 commit 7a9497b16 (verbatim downstream Samsung atoll csiphy_3ph_v1_2_reg,
+  3 trios x 38 = 114 entries, absolute addrs, 0x200 stride, each trio ends
+  0x800=0x0E). Mainline iterates lane_regs as one flat array, so the 6.14
+  `[3][38]` + per-lane loop == a single flat 114-entry array (identical writes).
+  Wires CAMSS_7180 into the (Heidelberg-refactored) csiphy_lanes_enable switch
+  (C-PHY -> the new table). CTRL7 (offset+0x1C) programmed 0x52 for C-PHY vs 0x02
+  D-PHY per the verified downstream config (deviates from Heidelberg's series,
+  which leaves 0x02 for all — noted for a future rebase).
+
+sc7180's own C-PHY register map is distinct from Heidelberg's sdm845 3PH table
+(his uses the LN CTRLn macros / CSIPHY v1.0; sc7180 is v1.2), so sc7180 needs its
+own table — could not reuse lane_regs_sdm845_3ph.
+
+Two PRE-EXISTING gaps in the a52q/camdt base (NOT introduced here, out of scope
+= D-PHY; flagged): (1) `csiphy_is_gen2()` was missing CAMSS_7180, so the 3-phase
+path was never selected — REQUIRED for C-PHY, so added it here (also routes
+sc7180 D-PHY to gen2). (2) No `lane_regs_sc7180` D-PHY table exists in this tree;
+the new case's D-PHY branch is left unpopulated (WARN_ONCE) instead of the old
+uninitialised-pointer landmine. sc7180 D-PHY needs its own lane table added to
+the a52q/camss series separately before the 4 D-PHY cams work on mainline.
+
+Checks (aarch64-linux-gnu- cross build; out dir on tmpfs under
+flock /tmp/claude-1000/a52build.lock, deleted after):
+- checkpatch.pl --strict -g HEAD: 0 errors, 0 warnings, 0 checks (161 lines).
+- W=1 build `make W=1 drivers/media/platform/qcom/camss/` (CAMSS=m): rc=0, 0
+  warnings, 0 errors, 28 objects incl camss-csiphy-3ph-1-0.o. (M= modules build
+  fails modpost with unresolved core symbols — expected without vmlinux
+  Module.symvers; the in-tree dir target is the correct W=1 check.)
+- No DT touched -> CHECK_DTBS not run.
+
+On-device test to run next: boot with this camss + the a52q/camdt DT + C-PHY DTB,
+CONFIG_VIDEO_QCOM_CAMSS=m. Verify with libcamera `cam -s role=raw` on the
+S5KGW1P (CSIPHY0): capture RAW and confirm the sensor colour-bar TEST_PATTERN
+(V4L2_CID_TEST_PATTERN) shows repeating bars with all rows filled (per the
+2026-09-27 audit — frame mean/std alone is NOT a valid pass). Expect no
+"Missing lane_regs definition!" WARN for CSIPHY0. Regression-check the 4 D-PHY
+cams are unaffected (they will still need the D-PHY gap #2 fixed to stream).
+
+### 2026-10-01 follow-up — SC7180 D-PHY table + gen2 fix + CTRL7 scoping (a52q/cphy)
+
+Restructured the sc7180 additions into three own commits on top of Heidelberg's
+9 (rebuilt from the Heidelberg tip; hashes changed):
+- a03cd9a71595 "Mark SC7180 CSIPHY as gen2" — CAMSS_7180 added to
+  csiphy_is_gen2() alone. Verified `git apply --check` clean on pre-Heidelberg
+  a52q/camdt, so it can be cherry-picked straight into the a52q/camss series.
+- 61f9330a2c79 "Add SC7180 CSIPHY D-PHY lane settings" — new lane_regs_sc7180[]
+  (CSIPHY v1.2 2PH, clock + 4 data lanes, 5x23=115 entries) flattened from the
+  verified 6.14 tree (7a9497b16^ lane_regs_sc7180[5][23], captured on device);
+  wires CAMSS_7180 D-PHY branch to it (replaces the WARN_ONCE placeholder). Fixes
+  the 4 D-PHY cameras on mainline.
+- 6047f7fcef69 "Add C-PHY support for SC7180" — lane_regs_sc7180_cphy[] (114
+  entries) + C-PHY branch; CTRL7=0x52 now scoped to CAMSS_7180 C-PHY only
+  (`version==CAMSS_7180 && phy_cfg==CPHY`), so sdm845/other C-PHY keep Heidelberg's
+  0x02 unchanged.
+
+Checks: checkpatch --strict -g on all 3 = 0/0/0. W=1 `make W=1
+drivers/media/platform/qcom/camss/` (CAMSS=m, aarch64 cross, tmpfs out under
+flock, deleted) = rc=0, 0 warnings, 28 objects. No DT touched.
+
+On-device: now expect ALL 5 cams — the 4 D-PHY (front imx616, UW s5k3l6, depth
+gc5035, macro via mux) AND the C-PHY main (s5kgw1p, CSIPHY0) — no "Missing
+lane_regs" WARN. Validate each with the colour-bar TEST_PATTERN via libcamera raw.
+
+## 2026-10-01 04:15 — mainline integ 9d9c345 (+ DT fixes 238fec6/36c84f3/cfd26e0 via local dtb) ON DEVICE
+UKI a52qtest_0.26.1001.4 = OBS kernel 9d9c345 + locally built dtb (a52q/integ incl. bootfix). systemctl: running, 0 failed.
+VERIFIED working on mainline 7.3:
+- Wi-Fi wld0 associated (pd-mapper sm7125 fix); BT hci0 (geni serial alias fix) — laptop discovers the phone;
+  NFC nfc0 DEV_UP/START_POLL/STOP_POLL/DEV_DOWN OK; /dev/fastrpc-adsp present, hexagonrpcd running.
+- Touch stmfts input (needs &gpi_dma0/1 status okay — the dtfix agent had left them disabled).
+- Sound card "Samsung Galaxy A52" (needs q6asmdai dai@0-2 + q6afedai QUIN_MI2S_RX qcom,sd-lines=<0>): speaker
+  path plays (silence at -110 dB, no AFE errors), Mic1 capture OK, WCD938x bound over SoundWire, headset jack input.
+  UCM: card longname is now "samsung-SamsungGalaxyA52" → recipes commit 0ee5d29 adds the matching conf.d symlink.
+- Cameras: libcamera lists 3 (s5kgw1p main C-PHY, imx616 front, s5k3l6xx UW via video-mux); cam -cN --capture=4
+  gives full-size frames with data on all 3 (incl. C-PHY). EEPROMs at24 9-0050/0051. GPU used by libcamera softISP (EGL).
+- GPU A618 OK (bin 159 → 750 MHz max), panel, backlight, modem, ADSP, USB net, charger/FG, Type-C, keys, vibrator.
+OPEN:
+- s2idle (rtcwake -m mem) → hard reset right after "Filesystems sync" (no log; no PM_DEBUG/netconsole in build).
+  6.14 needed cci system-sleep + sm5714-cc IRQ masking fixes → agent porting (branch a52q/pm).
+- camss WARN v4l2-subdev.c:484 call_s_stream on start+stop for the video-mux pipeline (camss walks every subdev and
+  video-mux also forwards s_stream → sensor started twice) → agent fixing (branch a52q/camfix).
+
+## 2026-10-01: PM/suspend port-audit of 6.14-fork fixes vs a52q/integ (7.3-rc5)
+Worktree: a52q/pm off a52q/integ (sparse). Compared each named obs/sm7125 commit
+against the 7.3-rc5 integration tree. Result: almost everything was already
+backported into a52q/integ (same code, same ponytail comments).
+
+Per-commit verdict:
+- 77edbf98c i2c-qcom-cci system sleep + CAMNOC vote + ak7374: ALREADY PRESENT in
+  full (icc vote, SET_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend/resume), ak7374
+  cdef + both DT bindings). The task hint "mainline only has the interconnect part"
+  is stale. GAP (camera-only, not the reset): &cci0/&cci1 in the a52q DT have no
+  `interconnects`/`interconnect-names="cci-camnoc"`, so icc_path is NULL and the
+  anti-"camnoc_axi stuck" vote is a no-op on a52q. Not ported (needs sm7150 CAMNOC
+  provider IDs + on-device verify; irrelevant to s2idle reset).
+- cfafec1b7 sm5714-cc mask CC IRQ across sleep: ALREADY PRESENT (adapted to
+  request_threaded_irq/free_irq; disable_irq/enable_irq in SET_SYSTEM_SLEEP ops).
+- e0d5f445a + fe02559c6 qcom-wdt stop across sleep: ALREADY PRESENT and functionally
+  identical to the fork (SET_LATE_SYSTEM_SLEEP_PM_OPS; stop if active||hw_running on
+  suspend, start on resume). No ordering/last-ping/resume-path difference vs the fork
+  that could reset the SoC. Builtin (CONFIG_QCOM_WDT=y). Not the regression.
+- 5625ffa6c camss video-mux/lane-count/re-register: NOT APPLICABLE to a52q/pm. 7.3
+  rewrote the sensor-finding API (camss_find_sensor -> camss_find_sensor_pad); every
+  remaining piece (lane count from active sensor, re-register dedup) is built on the
+  video-mux-follow change that branch a52q/camfix owns. Skipped entirely to avoid a
+  cross-branch conflict on a rewritten subsystem; belongs in camfix on the 7.3 API.
+- d74773d9c + aed20b7ef sm5714-charger OTG-pref + torch LED + OTG VBUS regulator:
+  ALREADY PRESENT (otg-first op_mode, sm5714_otg_desc regulator, torch_led classdev).
+- b14bc30a8 sm5714-fg voltage/current/temp: ALREADY PRESENT (read_sram helper,
+  sm5714_fg_sign, VBAT, the 2989/2044/109 vendor scalings, min() capacity cap).
+
+=> Nothing to port from the named commits. One new in-tree fix made:
+   9269474 "arm64: defconfig: a52q: build the SMP2P sleepstate notifier in"
+   (CONFIG_QCOM_SMP2P_SLEEPSTATE m->y). checkpatch --strict 0/0.
+
+Ranked suspects for the s2idle hard-reset (right after "PM: suspend entry / fs sync"):
+1. CONFIG_QCOM_SMP2P_SLEEPSTATE=m not loaded at suspend time. smp2p_sleepstate signals
+   the ADSP via a PM_SUSPEND_PREPARE notifier that fires exactly at that point in the
+   log; if the module isn't loaded the SEE is never told the AP is sleeping, faults,
+   and Samsung's subsystem-restart-disabled firmware full-resets the SoC. This is the
+   one leg of the 6.14 "FIXED" recipe that the 7.3 build no longer guarantees. Fixed
+   above by building it in. [top]
+2. hexagonrpcd not stopped across sleep (6.14's 3rd leg, a52q-sensors-sleep.service).
+   Userspace, not an in-tree fix; same ADSP-fault -> reset path if the service is
+   absent on the test image.
+3. qcom-wdt bite - unlikely: fix is present, builtin, and identical to the 6.14 one
+   that fixed it; listed only for completeness.
+
+Suspend-hostile DT/driver scan (a52q/integ) - essentially CLEAN:
+- sm5714-cc (gpio104 LEVEL_LOW): IRQ masked across sleep. OK.
+- touch stmfts_fts5cu56a (gpio9 LEVEL_LOW): disable_irq in suspend + IRQF_NO_AUTOEN +
+  SET_SYSTEM_SLEEP_PM_OPS. OK.
+- tas2562 x2 (gpio90 LEVEL_LOW, shared): mainline driver requests NO irq; the DT
+  `interrupts` are inert. Benign.
+- NFC s3nrn4v (gpio37): no mainline driver in integ; node never binds. Benign.
+- sm5714 muic/charger/fg (i2c4): no `interrupts` declared -> no IRQ-storm path.
+
+## 2026-10-01 — CAMSS double s_stream WARN with video-mux (a52q/camfix)
+
+Symptom: `WARNING: drivers/media/v4l2-core/v4l2-subdev.c:484 at call_s_stream`
+once from video_start_streaming and once from video_stop_streaming, on the
+pipeline [s5k3l6xx]->[video-mux]->[csiphy3]->[csid0]->[vfe0_rdi0]->[video0].
+Direct sensor->CSIPHY pipelines (no mux) do not warn.
+
+Root cause: camss-video.c video_start/stop_streaming() walk pads[0] upstream
+and call .s_stream() on EVERY subdev up to and including the sensor.
+video_mux_s_stream() (drivers/media/platform/video-mux.c) itself forwards
+.s_stream() to its active upstream subdev, so the sensor is started/stopped
+once by the mux and again by the camss walk -> the "already started/stopped"
+WARN_ON fires.
+
+Fix (branch a52q/camfix off a52q/integ, 1 commit): stop the walk at the first
+external subdev. camss drives only its own subdevs; the first non-camss subdev
+(sensor, bridge or mux) owns everything upstream of it. CAMSS-owned subdevs
+belong to a fixed set — new helper camss_is_own_subdev() tests the subdev
+against camss' own CSIPHY/TPG/CSID/ISPIF/VFE-line subdevs (enumerated exactly
+as camss_register_entities() does, via res counts), and the walk breaks after
+calling s_stream on the first subdev that fails it. Array membership is used
+rather than subdev->owner because with CAMSS and video-mux both built-in the
+module owner is NULL for both, so an owner test would wrongly treat the mux as
+camss-owned and start the sensor twice again. Plain sensor pipelines are
+byte-for-byte identical (sensor stays the last subdev called). No existing upstream fix: the Sept 2026 streams-API series
+(Gjorgji Rosikopulos) only short-circuits when enable_streams is supported;
+the legacy s_stream walk (our mux case) is untouched.
+
+Fixes: 0ac2586c410f ("media: camss: Add files which handle the video device nodes").
+Checks: checkpatch --strict 0 errors/0 warnings; W=1 cross build (gcc 16.1
+aarch64-linux-gnu, a52q_defconfig+olddefconfig) of the whole qcom/camss/ dir
+clean, no warnings. Second W=1 build with CAMSS=y + VIDEO_MUX=y (media chain
+=y) also clean, proving the built-in case compiles. Not flashed/tested on
+device yet.
+
+## 2026-10-01 04:35 — s2idle WORKS on mainline 7.3 (the "reset" was a test artefact)
+- `rtcwake -m mem` suspends WITHOUT systemd sleep.target, so a52q-sensors-sleep.service never stops hexagonrpcd →
+  ADSP SEE faults → Samsung FW hard-resets (the same failure 6.14 had). Always test with
+  `echo +N > /sys/class/rtc/rtc0/wakealarm; systemctl suspend --check-inhibitors=no` (the usbnet inhibitor blocks
+  plain `systemctl suspend`). Script /var/tmp/s2.sh (unbinds the gadget, suspends, rebinds; run via Wi-Fi ssh:
+  `ssh -o ProxyCommand=none -o HostName=192.168.100.131 a52r`).
+- Verified: 40 s s2idle by wall clock (02:30:34 → 02:31:14, RTC wake), and 25 s with USB attached. NOTE monotonic
+  timestamps do not advance in s2idle — "entry→exit 1.3 s" in dmesg is NOT an early wake.
+- After resume: Wi-Fi, BT, modem, ADSP, camera capture, mic capture all OK.
+- Fixes found: stmfts power_off treated i2c_master_send()'s byte count (3) as an error ("failed to disable
+  touchscreen: 3") → fixup on a52q/bootfix. PM audit agent: all 6.14 sleep fixes already present in mainline;
+  a52q/pm 9269474 builds SMP2P_SLEEPSTATE in (=y) so suspend never depends on module load order.
+
+## 2026-10-01 — GC5035 (macro + depth) upstream-submittable series (branch a52q/gc5035)
+
+Worktree `/tmp/claude-1000/wt-gc5035` off `a52q/integ`. Seven commits: Figa's v4
+posting (from patchwork REST API) applied verbatim with his From:/SoB preserved,
+then our changes on top.
+
+Series (newest first):
+- arm64: defconfig: a52q: enable GC5035 camera sensor (CONFIG_VIDEO_GC5035=m)
+- arm64: dts: qcom: sm7125-samsung-a52q: add GC5035 depth + macro cameras
+- media: i2c: gc5035: modernise and add Galaxy A52 (a52q) support   [us]
+- dt-bindings: media: gc5035: use mclk clock-name and add label     [us]
+- media: i2c: gc5035: Add OTP configuration handling                [Hao He/Figa, am]
+- media: i2c: Add a driver for the Galaxycore GC5035 sensor         [Hao He/Figa, am]
+- media: dt-bindings: media: i2c: Add bindings for GC5035           [Figa, am]
+
+Key decisions:
+- Driver = Figa v4 base + our delta = the 6.14 fork driver MINUS the mipi_sel_gpio
+  hack. a52q/integ models the gpio66 UW/macro switch as a gpio-mux mux-controller +
+  video-mux, so the sensor must NOT drive gpio66 itself (that is the downstream model).
+  Macro connects to the reserved video-mux input port@1; depth goes direct to CSIPHY1.
+- Did NOT convert to v4l2-cci: GC5035 is page-banked (0xfe selects the register page),
+  which CCI's flat 16-bit reg model does not fit. Active-state/fwnode/pm_runtime
+  modernisation was already in the fork and is kept.
+- Binding: renamed to galaxycore,gc5035.yaml, $id trailing '#', clock-name mclk,
+  added label, allOf $ref video-interface-devices.yaml (orientation/rotation),
+  unevaluatedProperties, pwdn-gpios made optional (a52q modules have no PWDN).
+- DT: added ldo4 (1.2V, depth/macro vdig) and vreg_cam3_vana (gpio64, 2.8V) to a52q;
+  sensor data-lanes = <1 2> per binding; MCLK1/MCLK3 pinctrl; csiphy1 port on camss.
+
+Checks (all run in worktree, aarch64-linux-gnu-gcc 16.1, dtschema 2026.6):
+- checkpatch --strict: our 4 commits 0 errors/0 warnings/0 checks. Figa's 3 am'd
+  commits carry inherited as-posted warnings (binding-without-MAINTAINERS since his
+  2/4 split put it in 3/4; MODULE_LICENSE "GPL v2"; 2 alignment CHECKs) — all cured
+  in the final tree by our modernise commit; left on his commits to keep From:/SoB.
+- dt_binding_check DT_SCHEMA_FILES=galaxycore,gc5035.yaml: clean.
+- W=1 build of drivers/media/i2c/gc5035.o: 0 warnings, 0 errors.
+- CHECK_DTBS=y qcom/sm7125-samsung-a52q.dtb: 0 warnings.
+
+Gotcha: /tmp tmpfs + / both ~100% full (other sessions' 1.8G worktrees). The W=1
+build needs the full Kconfig tree + prepare deps; built via a non-cone sparse set
+(all Kconfig files + scripts/include/arch-arm64/drivers-media/kernel/lib/tools/
+arch-x86-syscalls + drivers/Makefile). In a linked worktree the sparse file is at
+`git rev-parse --git-path info/sparse-checkout`, NOT .git/info. Build dir deleted.
+
+## 2026-10-01 05:45 — integ cf7d8dfc on device; modem DOG stall; sensors
+- cf7d8dfc (bootfix+camfix+pm): camss WARN gone (0 "cut here" after capturing all 3 cams); touch/sound/BT/NFC OK.
+- INTERMITTENT (2/6 boots, both builds): modem `fatal error received: dog_hal_common.c:173:DOG detects stalled
+  initialization` ~40 s after MPSS start; recovery sometimes leaves no WLFW/wld0 (qcom-modem-setup then fails).
+  Cause (agent research, MODEM-STALL-2026-10-01.md): QCOM_PD_MAPPER=m loads via udev only after remoteproc creates
+  its aux device → MPSS can start before the PD mapper exists. Upstream reports the same signature; their fix is
+  MODULE_SOFTDEP("pre: qcom_pd_mapper") in qcom_common. Ours: defconfig QCOM_PD_MAPPER=y (integ 1f3e617, building,
+  also adds GC5035). VERIFY over 8-10 reboots.
+- Sensors: SSC registry configs extracted from the Lineage vendor (~/linux-a52q/sensors/, deployed to
+  /var/lib/droid-juicer/sensors/sensors). Still no sensors: ADSP asks hexagonrpcd for "/../sns_reg_version" (sibling
+  of the persist registry dir, unmapped) → agent patching hexagonrpcd. Same failure on 6.14 (never worked).
+- DO NOT `echo stop > /sys/class/remoteproc/<adsp>/state` at runtime: it hard-resets the phone.
+
+## 2026-10-01 16:50 — session resumed after a laptop reboot
+- /tmp is tmpfs: all agent worktrees under /tmp/claude-1000 and the scratchpad (reboot-loop log, extracted .debs)
+  were lost; branches/commits are intact in ~/src/linux-upstream. Root disk had 173 MB free (owner's package
+  caches) → removed ~/linux-a52q/out-mainline (6.2 GB stale local build dir; builds are on OBS now).
+- Phone NOT attached since the laptop booted (09:20), not on LAN/tailscale. Queued on-device checks are scripted in
+  ~/linux-a52q/accept73.sh (modem DOG-stall N-reboot loop, sensors with patched hexagonrpcd, 5 cameras incl.
+  GC5035 macro, Wi-Fi/BT/NFC/touch/deferred/WARN counts). Run:
+  `flock /tmp/claude-1000/a52phone.lock ~/linux-a52q/accept73.sh 8 | tee ~/linux-a52q/accept-$(date +%m%d-%H%M).log`
+- Phone state when last seen: default UKI a52qtest_0.26.1001.6 (integ 1f3e617: PD_MAPPER=y + GC5035), modules
+  installed; patched hexagonrpcd (sha 02f307c9) at /var/lib/a52q-test with drop-in; failsafe73 still enabled.
+
+## 2026-10-01 17:30 — second laptop reboot; camfix d4afd1c merged (integ 22c75c6, on OBS)
+- camss_find_sensor_pad() now follows the enabled link (media_entity_remote_source_pad_unique) → GC5035 macro on
+  video-mux input 1 should stream; WARN was csiphy_get_bpp() "Unknown format" on the mis-resolved input.
+- ~/linux-a52q/phone-arrive.sh (run under the phone lock) waits for the A52 USB NIC, installs the newest OBS
+  build if its sha differs from ~/linux-a52q/k73/.sha, then runs accept73.sh 8 → ~/linux-a52q/accept-*.log.
+
+## 2026-10-01 — U-Boot upstream-submittable series prepared (branch a52q-upstream)
+
+New branch `a52q-upstream` off the same base as `a52q` (v2026.10-rc5, a06e89ab).
+6 patches, exported to `~/linux-a52q/upstream/u-boot/` (cover letter + To/Cc from
+get_maintainer.pl). NOT emailed, NOT pushed, phone not flashed.
+
+Series:
+- 1-4: Vitalii Skorkin's SM7125 v2 (SC7180 GCC/pinctrl/UFS-PHY), cherry-picked,
+  authorship preserved (Erikas Bitovtas is the submitter, Vitalii the author).
+- 5 `qcom: Add board support ... (a52q)`: upstream phone convention — NO dedicated
+  defconfig. `board/qualcomm/a52q.config` fragment (DEFAULT_DEVICE_TREE, env text
+  file, BLKMAP/CMD_BLKMAP, CMD_PMIC, WATCHDOG_AUTOSTART, TEXT_BASE=0x80080000) +
+  `board/qualcomm/a52q.env` (dual-boot menu: Linux via blkmap/EFI, LineageOS via
+  `pmic write 0x88f 0x02; reset`, PON-reason explained in a comment) + MAINTAINERS.
+  Build: `make qcom_defconfig qcom-phone.config a52q.config`.
+- 6 `doc: qcom: ... a52q page`: doc/board/qualcomm/samsung-a52q.rst + index.rst
+  (build/packaging/odin4 flashing, msm-id/board-id, bad-magic DTBO, watchdog caveat).
+
+Key decision — replaced local hack 07e1b99e (global edit hardcoding the arm64
+image header text_offset to 0x80000) with CONFIG_TEXT_BASE=0x80080000 in a52q.config
+(= google-pixel.config value). Verified byte-identical: `u-boot-nodtb.bin` header
+offset field (bytes 8-15) = 0x0000000000080000. qcom_defconfig is PIE so the TEXT_BASE
+change is safe for execution. NOT re-verified on hardware (no flashing permitted).
+
+DT: `sm7125-samsung-{a52q,a72q,common}.dts*` kept as UNTRACKED working-tree files
+(not committed). U-Boot takes arm64 qcom DTs via the dts/upstream sync from
+devicetree-rebasing/Linux, so the DT is a dependency documented in the cover letter,
+not part of the U-Boot series. The files must be present in dts/upstream/src/arm64/qcom/
+to build until the Linux DT (dt-a52q-v3.mbox) lands in rebasing.
+
+Verification (host aarch64-linux-gnu-gcc):
+- checkpatch.pl: 0 errors on all 6 (each new-file patch has the standard 1
+  "does MAINTAINERS need updating?" warning; 0005 does update MAINTAINERS).
+- build OK -> u-boot-nodtb.bin + sm7125-samsung-a52q.dtb.
+- u-boot-initial-env contains the full menu (bootmenu_0=Linux, bootmenu_1=LineageOS,
+  boot_android pmic write 0x88f, blkmap preboot).
+- repack.sh packs it (AP-uboot-a52q.tar = boot.img + zeroed dtbo.img), rc=0.
+
+Caveat: repack.sh line 8 still names `qcom_a52q_defconfig` (gone on this branch); it
+only skipped because .output/.config pre-existed. Left unchanged (the `a52q` branch
+still has that defconfig). Update to the fragment line if repacking a clean tree.
+
+---
+
+## 2026-10-01 — CDSP remoteproc + thermal/venus audit (a52q/integ)
+
+Worktree: `~/src/wt-cdsp` (branch `a52q/cdsp`, base `a52q/integ` 22c75c6), sparse.
+
+### Task 1 — CDSP remoteproc: DONE (3 commits on a52q/cdsp)
+- `dt-bindings: ... qcom,sm6350-pas: add SC7180 CDSP` — SC7180 CDSP == SM6350 CDSP
+  PAS (same cx/mx proxy PDs, 5 interrupts). Added `qcom,sc7180-cdsp-pas`,
+  `qcom,sm6350-cdsp-pas` fallback (qcs615/sm8150 pattern). No driver change: existing
+  `sm6350_cdsp_resource` match binds via the fallback. Converted the cdsp interrupt +
+  power-domain `if` branches from `enum` to `contains: enum` so the fallback matches.
+- `arm64: dts: qcom: sc7180: add CDSP remoteproc node` — remoteproc@8300000 + fastrpc,
+  status disabled. KEY: mirrors the ADSP node, NOT MPSS — sc7180.dtsi does not define
+  *_mem and the cdsp node carries NO memory-region; boards supply it. (The initial
+  attempt added `cdsp_mem` to sc7180.dtsi, which collided with the board's own
+  `cdsp_mem@98900000` — reverted.)
+- `arm64: dts: qcom: sm7125-samsung: enable CDSP on Galaxy A52` — `&remoteproc_cdsp`
+  memory-region=<&cdsp_mem> in samsung-common (cdsp_mem@98900000 already present there),
+  firmware-name `qcom/sm7125/a52q/cdsp.mbn` + status okay in a52q.dts.
+
+### Task 2 — thermal/cpufreq audit: NOTHING TO PORT
+Compared obs/sm7125 (6.14 fork) vs a52q/integ:
+- tsens0/1 (qcom,sc7180-tsens): identical. SoC thermal-zones: mainline 26 vs fork 25
+  (mainline is ahead, nothing missing).
+- cpufreq: both use `qcom,sc7180-cpufreq-hw` + `osm_l3` + `qcom,sc7180-cpu-bwmon`.
+  sc7180 uses OSM, not EPSS. Identical.
+- LMh: absent in BOTH fork and mainline (no qcom,sc7180-lmh node exists anywhere).
+- Skin/battery thermal zones via PM6150 ADC: the brief expected these in the 6.14 DT,
+  but the fork's a52q/common/sm7125 DTS have NO board thermal-zones, adc-tm, iio-hwmon,
+  or therm channels (only audio "ADC" labels). PM6150/6150L are included but expose no
+  thermistor channels. So the premise does not hold for this fork — there is nothing to
+  port. No commits for Task 2.
+
+### Task 3 — Venus: already correct, no change
+sc7180.dtsi `venus: video-codec@aa00000` has no status prop (defaults okay) and full
+power-domains/clocks/iommus + video-decoder/encoder subnodes. a52q.dts `&venus` sets
+firmware-name `qcom/sm7125/a52q/venus.mbn`. Nothing else needed.
+
+### Verification (the kernel `make` path was unusable — see below)
+- Binding: `dt-doc-validate` on qcom,sm6350-pas.yaml — OK (schema + example valid).
+- DTBs: compiled a52q, a72q, sc7180-trogdor-coachz-r3 with `cpp -Iscripts/dtc/
+  include-prefixes` + `dtc` — 0 errors, 0 new dtc warnings from the cdsp node.
+- dtbs_check equivalent: `dt-mk-schema -j` (processed schema) + `dt-validate` — cdsp
+  node clean in all three (a52q enabled+memory-region, a72q disabled+memory-region,
+  trogdor disabled+no-memory-region). Baseline-vs-current diff: 0 new warnings.
+- checkpatch --strict: 0 errors / 0 warnings / 0 checks on all three commits.
+
+### ENV NOTE — kernel `make`/dtbs_check stalls here
+`make O=<tmpfs> ARCH=arm64 defconfig` never completed: the recursive makes sat sleeping
+at 0% CPU with no `.config` after 30 min (load avg < 1, not CPU-bound — blocked). Killed
+twice. Root fs is at 99% (5 GB free) but O= was on tmpfs, so that is not obviously the
+cause; suspect the same I/O/thrash class of issue noted for this host. Worked around it
+entirely with the standalone dt-schema toolchain (`~/.local/bin/dt-{doc-validate,validate,
+mk-schema}`) + cpp/dtc — this reproduces dtbs_check/dt_binding_check without kernel make.
+Also had to widen the sparse-checkout to include `include/uapi/linux` (dt-bindings input
+header symlink) and `arch/arm/boot/dts` (trogdor includes arm/cros-ec-sbs.dtsi).
+
+## 2026-10-01 18:40 — CDSP merged; OBS 0076120 built and saved
+- a52q/cdsp (3 commits, binding fallback qcom,sc7180-cdsp-pas → sm6350, same as the working 6.14 DT) merged:
+  integ 0076120, OBS r8 succeeded. Kernel .deb extracted to ~/linux-a52q/k73/x (.downloaded = 0076120, NOT yet installed on the
+  phone; .sha = installed marker used by phone-arrive.sh, absent → it will install on next run).
+- Thermal/cpufreq audit: nothing to port (tsens/cpufreq-hw/osm-l3/bwmon identical to 6.14; no LMh). Venus OK.
+- Owner asked (2026-10-01 ~18:00) to stop all USB interaction with the phone; watcher stopped. Do not touch the
+  phone until the owner says so.
+
+## 2026-10-01 — input-fts5cu56a upstream-clean (v2)
+
+Goal: make the ST FTS5CU56A touchscreen driver (A52/a52q) upstream-clean;
+decide standalone vs extending stmfts.c on top of David Heidelberg's
+in-flight FTS5 series (patchwork series 1174082 / patch 14848317, v8).
+
+Decision: **standalone (option B)**. Fetched Heidelberg's v8 series mbox and
+compared protocols. stmfts.c (and his `st,stmfts5` ops variant) use 8-byte
+events via opcodes 0x85/0x86 and the ST-reference 0x90-0xa4 command set.
+FTS5CU56A uses Samsung sec_ts firmware: 16-byte event FIFO via 0x60/0x61
+(remaining count in byte7 & 0x1f), 0x62 clear, ID/FW reads 0x22/0x24,
+calibration 0x13, 6-byte 0xfa reset blob, bit-packed coordinate/touch-type
+events. Only overlap is scan enable 0xa0 00 01 (and 0xa0 even means
+SYSTEM_RESET in the reference set). Extending stmfts.c = a second fully
+independent parser+power path in code his series is actively changing, zero
+shared behaviour, no HW here to verify the other variants → net-negative.
+
+Work (branch up/input-fts5cu56a-v2 in ~/src/linux-upstream; sparse worktree
+~/src/wt-fts; full build worktree on tmpfs under flock, deleted after):
+- Rewrote drivers/input/touchscreen/stmfts_fts5cu56a.c clean. Preserved
+  EXACTLY: all command bytes (reset 0xfa 20 00 00 24 81; touch-enable
+  0x39 61 00; cal 0x13; clear 0x62; scan 0xa0 00 01 / 00), timings
+  (msleep 500 after regulator enable, msleep 20 after reset), the
+  0x60/0x61 FIFO read + `data[7]&0x1f` count + loop, and the exact
+  press/move/release input_report_* semantics + touch_count/BTN handling.
+  The squashed fixup (i2c_master_send positive byte count = success in
+  power_off, warn only on <0) is kept.
+- Stripped debug-only code: location_detect, finger_mode, all dev_dbg,
+  per-finger telemetry fields, dead enums/defines, the status/gesture/
+  vendor structs. Replaced bitfield structs with explicit, endian-safe
+  mask/shift extraction (same bit math). sprintf->sysfs_emit,
+  ATTRIBUTE_GROUPS/.dev_groups, DEFINE_SIMPLE_DEV_PM_OPS/pm_sleep_ptr,
+  guard(mutex). Removed never-reported axes (ABS_MT_ORIENTATION /
+  ABS_MT_PRESSURE / ABS_DISTANCE) and the duplicate ABS_MT_TOUCH_MAJOR
+  line; kept POSITION_X/Y and TOUCH_MAJOR/MINOR (the only axes reported).
+- Folded the old separate "clean up coding style" patch into the driver
+  patch; renamed binding file to match the compatible
+  (st,stmfts_fts5cu56a.yaml); added a MAINTAINERS entry.
+- v2 = 2 patches (binding, driver) + cover letter with the stmfts.c
+  reuse-rejection paragraph.
+
+Checks (all from the tmpfs full tree, flock /tmp/claude-1000/a52build.lock):
+- checkpatch --strict: driver 0 err / 0 warn / 0 chk; binding only the
+  "does MAINTAINERS need updating?" heuristic (resolved by patch 2/2).
+- dt_binding_check DT_SCHEMA_FILES=...st,stmfts_fts5cu56a.yaml: RC 0, zero
+  schema warnings (yamllint not installed → that sub-check skipped).
+- W=1 arm64 (aarch64-linux-gnu-gcc 16.1.0) build of
+  drivers/input/touchscreen/stmfts_fts5cu56a.o: RC 0, zero warnings.
+- NOT verified on device (no hardware this revision); behaviour preserved
+  by construction (command/timing/report paths copied verbatim).
+
+Output regenerated in ~/linux-a52q/upstream/input-fts5cu56a-v2/
+(format-patch -v2 + cover + to-cc.txt).
+
+## 2026-10-01 19:20 — touch driver v2 in integ (c5c6e8a, on OBS)
+- FTS5CU56A driver rewritten upstream-clean (853→463 lines, checkpatch 0/0/0); event decode reviewed against the old
+  bitfields (eid/tid/tchsta/x/y/ttype/left_event identical). Compatible renamed st,stmfts_fts5cu56a → st,fts5cu56a
+  (binding st,fts5cu56a.yaml, a52q dts updated). Reusing stmfts.c rejected: the chip runs Samsung sec_ts firmware
+  (16-byte FIFO 0x60/0x61), unlike ST's 8-byte protocol. NOT yet HW-verified: if touch breaks on the next
+  boot, compare against 0076120 (~/linux-a52q/k73 holds that build).
+- serial-geni upstream patch: Fixes: a53be6945f51 (v6.16-rc1) added.
+
+## 2026-10-02 19:40-20:00 — acceptance run on c5c6e8a; boot loop (my fault); modem DOG ROOT-CAUSED
+- c5c6e8a: 6 boots — touch v2 works, 5 cameras listed (cam2 0 frames once), Wi-Fi/BT/NFC every boot,
+  0 failed units, 0 WARNs. Modem DOG stall still 1/6 → PD_MAPPER=y was not the cause.
+- SENSORS: the deployed SSC configs on the phone were 0-byte files (my earlier deploy) → redeployed (md5
+  verified) → the ADSP then loaded them and `PDM: service 'sensor_process' crash: EF:...:UTMR_CLNT_1:...:
+  sns_thread_mana` ~26 s into every boot → ADSP fatal → hard reset → BOOT LOOP (5 boots). Broken by
+  `systemctl mask hexagonrpcd iio-sensor-proxy` + configs moved to *.disabled. Before the crash hexagonrpcd
+  logs missing `sns_bring_to_ear.so` (vendor rfsa/adsp libs) and `/sys/class/sensors/ssc_core/ssc_mode`
+  (Samsung downstream sysfs). Agent working on both; hexagonrpcd stays MASKED until a manual test passes.
+- MODEM DOG STALL ROOT CAUSE (2 of 2 stalled boots, 0 clean boots): `failed to announce new service` +
+  `failed while handling packet from 0:-2` 14 ms after modem up. net/qrtr/ns.c announce_servers() aborts the
+  whole NEW_SERVER list on the first send error; -EAGAIN happens while our own HELLO to the modem has not gone
+  out yet → modem never learns rmtfs/tqftpserv → init stall → DOG 40 s later. Fix: retry -EAGAIN (20 ms × 50)
+  and continue past other errors (branch a52q/qrtr ea0b380, upstreamable; integ = ea0b380 on OBS).
+- accept73.sh: resends the reboot if the phone did not reboot within 2 min (the 3 h stall in part2).
+
+## 2026-10-02 21:30 — SENSORS WORK on mainline; QRTR fix verified 8/8
+- ea0b380 (QRTR announce retry): 8/8 boots clean, no "failed to announce", Wi-Fi every boot.
+- SSC sensors: root cause = pm6150l L8 (sensor VDDIO, downstream "Sensor Vdd" always-on) unused in
+  mainline → off → SEE bus hang → sensor_process watchdog → ADSP fatal → phone reset. Fix: a52q DT
+  `&vreg_l8c_1p8 { regulator-always-on; }` (a52q/ssc-rails 2665664, merged; integ pushed to OBS).
+  Tested with that DTB on ea0b380: hexagonrpcd + iio-sensor-proxy start from boot, accelerometer + ALS
+  present, 0 sensor_process crashes. Compass not exposed by iio-sensor-proxy (open).
+- Safety: hexagonrpcd now has ExecCondition on .../regulators-1/ldo8/regulator-always-on (phone drop-in
+  + recipes bd47183), so kernels without the rail fix never start it (no boot loop).
+- The earlier 0-byte sensor configs on the phone came from my first, botched deploy — always md5-verify.
+- Cameras: after a capture was killed mid-stream, every capture returns 0 frames with an SMMU fault at
+  IOVA 0 (SID 0x820, VFE); plus a recurring cam_cc_camnoc_axi_clk "stuck at on" WARN from
+  cci_suspend_runtime (a52q DT CCI nodes lack the cci-camnoc interconnect). Agent on a52q/camfix2.
+- USB cable dropped at 20:50 (laptop side); working over Wi-Fi via the new `a52w` ssh alias;
+  uki-test.sh/mods73.sh honour H= (e.g. H=a52w).
+
+## Camera-stack fixes: CCI CAMNOC DT + camss WM/state reset (2026-10-02)
+Branch a52q/camfix2 off a52q/integ (worktree ~/src/wt-camfix2). Two bugs from evidence-1002/camera-bugs.txt.
+
+Bug 1 - "cam_cc_camnoc_axi_clk status stuck at 'on'" WARN at every CCI runtime suspend.
+- Root cause: the i2c-qcom-cci icc vote (CCI_ICC_AVG_BW, "cci-camnoc" path) and the binding were already
+  ported to a52q/integ, but the sc7180 cci0/cci1 DT nodes had no `interconnects`, so devm_of_icc_get()
+  returned NULL and icc_set_bw() was a no-op. The shared camnoc_axi branch then wedged when CCI gated it
+  after camss had dropped its own bandwidth vote.
+- Fix: add `interconnects = <&camnoc_virt MASTER_CAMNOC_HF0_UNCOMP 0 &camnoc_virt SLAVE_CAMNOC_UNCOMP 0>;`
+  + `interconnect-names = "cci-camnoc";` to cci0 AND cci1 in arch/arm64/boot/dts/qcom/sc7180.dtsi (SoC-level
+  HW property - shared clock exists on all sc7180; mirrors the camss node's camnoc vote). Commit 608f04bb7518.
+
+Bug 2 - abnormal capture kill -> every later capture 0 frames + IFE SMMU unhandled context fault
+  (fsr=0x402 TF, iova=0, WNR, cbfrsynra=0x820=camss IFE) on stream-on.
+- Root cause chain (all in drivers/media/platform/qcom/camss):
+  (1) video_stop_streaming() returned early when a pipeline subdev s_stream(0) failed, skipping
+      video_device_pipeline_stop() AND flush_buffers() -> queued buffers never returned, left referenced
+      in the VFE output lists.
+  (2) vfe_flush_buffers() returned the active buffers to vb2 but left output->buf[]/gen2.active_num set.
+  (3) vfe_enable_output_v2() armed the WM (vfe_wm_start) before any address was written; with a stale/empty
+      pending list the WM ran pointing at address 0 -> SMMU TF at iova 0, which wedges the IFE context bank,
+      so ALL later captures (every camera, shared cb=8) fault/return 0 frames until reboot.
+- Fix (commit 0ca6efe43f5e):
+  (1) camss-video.c: log s_stream(0) error and keep walking so pipeline_stop + flush_buffers always run.
+  (2) camss-vfe.c vfe_flush_buffers(): NULL buf[0]/buf[1] and reset gen2.active_num.
+  (3) camss-vfe.c vfe_enable_output_v2(): if no pending buffer was pulled, vfe_wm_stop() and fail the
+      stream-on (-ENOBUFS) instead of leaving the WM enabled at address 0.
+- No existing upstream patch matched this exact fault; the hitesh@ebytelogic.com v5 camss series on
+  patchwork (buffer-done, WM selection, VFE-reset-while-streaming) is related but separate, not applied here.
+
+Verification (PC-side only, not yet on device):
+- tmpfs build /tmp/claude-1000 (root disk was 100% full; detached worktree + O= on tmpfs under a52build.lock).
+- W=1 drivers/media/.../camss/ and i2c-qcom-cci.o: 0 warnings. CHECK_DTBS=y sm7125-samsung-a52q.dtb +
+  sc7180-trogdor-lazor-r3.dtb: 0 warnings (no cci/interconnect schema warnings). checkpatch --strict: clean, both commits.
+- On-device expectation: no "stuck at 'on'" WARN at CCI runtime suspend; after a mid-stream kill, subsequent
+  captures on all cameras still return frames with no arm-smmu context fault.
+
+## 2026-10-02 22:40 — integ 706d119 on device (8/8 boots, sensors from boot, camera kill-test clean)
+- 8/8 boots: no modem crash, Wi-Fi/BT/NFC each boot; hexagonrpcd + iio-sensor-proxy active from boot
+  (registry populated: sns_reg_version + temp.json), 0 sensor_process crashes. ALS + accel discovered;
+  iio-sensor-proxy's "compass" is SSC `rotv` (fusion) → "No 'rotv' sensor available" (minor, open).
+- camstress.sh: kill capture mid-stream → next captures fine, 0 SMMU faults, 0 camnoc "stuck at on" WARNs.
+  camfix2: CCI cci-camnoc interconnects in sc7180.dtsi; stop_streaming always flushes; vfe flush resets
+  output state; WM never armed without a buffer; q->min_queued_buffers = 1 (my fixup: the agent's
+  -ENOBUFS alone would break apps that QBUF after STREAMON).
+- OPEN: GC5035 macro (camera@3f, video-mux input 1) streams with no errors but 0 frames → suspected CSIPHY3
+  lane count taken from the static DT endpoint (UW's lanes) — agent a52q/camlanes.
+- OPEN: touch bus a84000 `geni_i2c_gpi_xfer: I2C timeout` + gpi `CH STOP completion timeout` once at ~338 s
+  → agent a52q/gpi-fix (check GPI compatible/ee offset, dmas SE/channel numbers).
+
+## 2026-10-02 — GC5035 macro: CSIPHY/CSID lane count from active sensor (a52q/camlanes)
+
+RESOLVED (code, PC-side; on-device test pending orchestrator).
+
+Symptom: gc5035_macro (16-003f, video-mux input 1, shares CSIPHY3 with UW
+S5K3L6XX on input 0) streams with no kernel/libcamera error but 0 frames.
+Every other camera incl. UW (input 0) and depth GC5035 (CSIPHY1) is fine.
+
+Root cause (confirmed by code reading): CAMSS takes the CSIPHY *and* CSID
+lane count statically from the CSIPHY's own DT endpoint. csiphy3_ep declares
+`data-lanes = <0 1 2 3>` (4, sized for the UW). The macro drives only 2 lanes
+(cam_gc5035_macro_ep: `data-lanes = <1 2>`). So on the macro:
+  - csiphy_stream_on() builds a 4-lane lane_mask → CSIPHY waits on lanes 2,3
+    that never toggle → PHY never locks.
+  - CSID gen2 __csid_configure_rx() writes NUM_ACTIVE_LANES = lane_cnt-1 = 3
+    (lane_cnt cached at link_setup from lane_cfg->num_data=4) → expects 4.
+The depth GC5035 works because csiphy1_ep DT = 2 lanes already matches it; the
+mux is what decouples the port DT from the real sensor on CSIPHY3.
+d4afd1c (follow enabled link) + 7554dbc (stop s_stream at mux) were already in;
+they fixed link_freq resolution but not the lane count.
+
+Upstream-appropriate fix (no upstream series exists — patchwork/lore Anubis-
+walled, searched via ratatoskr: only C-PHY and streams-API series, neither does
+this): camss_get_num_lanes() in camss.c queries the active sensor (reached
+through the enabled links, i.e. across the mux, via camss_find_sensor_pad) with
+the .get_mbus_config pad op and returns its data-lane count capped to the port
+DT value; falls back to the DT value when the sensor lacks the op (plain
+pipelines unchanged). Used in csiphy_stream_on() (lane_cfg->num_data overridden
+for the stream, restored before return) and csid_set_stream() (csid->phy.lane_cnt
+re-evaluated; applied by configure_stream, which runs every stream-on since
+csid_set_power sets need_vc_update). VFE has no lane dependency (verified).
+.get_mbus_config implemented in gc5035 (lanes from parsed DT), s5k3l6xx/imx616
+(DPHY,4), s5kgw1p (CPHY,3). No DT/bindings change (DT already correct).
+
+Verify: W=1 camss + 4 sensors, a52q_defconfig+olddefconfig, aarch64 GCC 16.1 —
+0 warnings/errors. checkpatch --strict — only missing SoB (intended).
+Branch a52q/camlanes @ ed05f7ef2c4b off a52q/integ (706d119); sparse wt
+~/src/wt-camlanes. On-device check: macro should now deliver frames; re-confirm
+UW + depth still stream (lane_cnt restore / cap-from-DT path).
+
+## 2026-10-02 23:30 — touch GPI fix carried (unverified on HW), camlanes merged; integ fa2fda9 on OBS
+- Touch-bus `geni_i2c_gpi_xfer: I2C timeout` + gpi `CH STOP` failures: agent traced it to upstream regression
+  656147fb1d4c (GPI I2C read GO TRE without IEOB → TX descriptors never retire). Carried Vsevolod
+  Nevorotov's upstream fix from the ORIGINAL patchwork mbox (14803556, Reviewed-by Dmitry Baryshkov) —
+  the agent's first copy had redacted .invalid emails; replaced via `git am` of the real mbox.
+- Userspace repro attempt (~/linux-a52q/i2cstress.py, I2C_RDWR on /dev/i2c-7 @0x49) on the UNFIXED kernel:
+  3000 write+read transfers OK, 0 timeouts; bare single reads → EIO (chip NACK), not -110. So the leak needs
+  the driver's real IRQ-driven traffic; confirmation needs a human using the touchscreen for >6 min.
+- camlanes (ed05f7e): CSIPHY/CSID lane count from the active sensor via .get_mbus_config (gc5035,
+  s5k3l6xx, imx616, s5kgw1p implement it) → macro on a 4-lane shared port with 2 lanes. Merged.
+
+---
+
+# 2026-10-03 — Shutdown stall (D1) and rtc-offset save race (D8)
+
+Fixes from logs-1003/AUDIT.md items D1 and D8. Live-applied on phone (ssh a52r)
+and committed to recipes (0d0ff02, device-a52q, not pushed). No reboot done by me.
+
+## D1 — every shutdown stalls 30 s
+Culprit (journal-b-2:60100): `session-c2.scope: Stopping timed out. Killing`,
+then SIGKILL of pid 3184 = `/usr/libexec/gnome-session-init-worker phrog`. That
+binary ignores SIGTERM and holds the login-session scope open for the full
+`DefaultTimeoutStopUSec=30s` before SIGKILL. The other session clients
+(gnome-session-ctl/-service) exit on SIGTERM fine.
+
+Cause not fixable from the device recipe: gnome-session-init-worker is an
+upstream gnome-session binary in the read-only base image /usr, not shipped by
+device-a52q — patching it means rebuilding gnome-session for the whole distro.
+So, per brief, a scoped timeout drop-in on the login-session scope:
+
+  /etc/systemd/system/session-.scope.d/10-stop-timeout.conf  (live, /usr is RO)
+  recipe: .../usr/lib/systemd/system/session-.scope.d/10-stop-timeout.conf
+    [Scope]
+    TimeoutStopSec=10s
+
+`session-.scope.d/` is the dash-truncated drop-in that systemd applies to every
+`session-N.scope` (incl. transient logind scopes) — scoped to user sessions
+only, not a global DefaultTimeoutStopSec change.
+
+Verify (live): after daemon-reload, a fresh ssh login landed in session-34.scope
+with `TimeoutStopUSec=10s` (was 30s). Proves the drop-in reaches transient
+session scopes.
+Reboot test (user): in `journalctl -b -1`, the `session-cN.scope: Stopping timed
+out. Killing` -> SIGKILL gnome-session-init-worker gap should be ~10s, not ~30s;
+total "reboot requested" -> "Syncing filesystems" should drop by ~20s.
+
+## D8 — a52q-rtc-offset save fails 203/EXEC on most shutdowns
+ExecStop runs `/usr/lib/bengalos-a52q/rtc-offset.sh save`, but the unit had no
+ordering vs systemd-sysext.service; on most shutdowns systemd-sysext ran its
+ExecStop (`systemd-sysext unmerge`) first, removing /usr, so the script was gone.
+
+Fix: order the unit After=systemd-sysext.service. Stop order is the reverse of
+start order, so rtc-offset now stops (and saves) before sysext unmerges /usr.
+
+  live: /etc/systemd/system/a52q-rtc-offset.service.d/10-sysext-order.conf
+  recipe: a52q-rtc-offset.service  [Unit] After=... systemd-sysext.service
+
+Verify (live): `systemctl show a52q-rtc-offset -p After` now lists
+systemd-sysext.service; `systemd-analyze verify` clean (no cycle). Triggering the
+save via `systemctl stop a52q-rtc-offset` while /usr was merged updated
+/var/lib/bengalos-a52q/rtc-offset (09:15 -> 09:22, 1788133668 -> 1788133669);
+unit restarted, active.
+Reboot test (user): `journalctl -b -1` should NO LONGER show
+`a52q-rtc-offset.service: Unable to locate executable .../rtc-offset.sh` /
+status=203/EXEC; the offset file mtime should advance to the shutdown time.
+
+## Boot-log nits triage (2026-10-03, branch a52q/nits off a52q/integ @ fa2fda93f9f4)
+Sparse worktree ~/src/wt-nits (amd/ sources carved out, Kconfig kept; 1.3G). Built O= on
+/tmp/claude-1000/a52build under flock a52build.lock. Phone inspected read-only via ssh a52r.
+
+### 1. systemd-backlight "Failed to write 'brightness': Invalid argument" — FIXED
+Commit ffd5431f1432 ("drm/panel: samsung-s6e3fc3: don't touch DSI from backlight ops while off").
+Root cause: s6e3fc3_bl_update_status()/get_brightness() issue DCS traffic on the panel DSI link
+unconditionally. The unit runs twice ~120ms apart (12.299 fail, 12.451 ok) = the simpledrm->msm
+handover window: the backlight sysfs device exists but the panel is briefly not enabled, so the
+DCS write on a down link fails and is returned to userspace as -EINVAL.
+NOT a range error: phone shows max_brightness=1023, saved value=314 (/var/lib/systemd/backlight/
+platform-ae94000.dsi:backlight:ae94000.dsi.0). actual_brightness read was also empty (get op
+failing the same way), bl_power=4.
+Fix: track panel_info.enabled (set in .enable on success, cleared in .disable); both backlight
+ops no-op (return 0) while off. The core still stores props.brightness, and
+drm_panel_enable()->backlight_enable() reapplies it when the panel comes up. Build W=1 0 warnings,
+checkpatch --strict clean (0/0/0).
+
+### 2. qcom-q6afe "cmd = 0x100f6 returned error = 0x1" (x2) — SKIPPED (benign firmware)
+0x100f6 = AFE_CMD_REMOTE_LPASS_CORE_HW_DEVOTE_REQUEST (release of the LPASS-core HW vote).
+Issued by q6afe-clocks (.lpass_unvote_clk = q6afe_unvote_lpass_core_hw) for the two vote clocks
+LPASS_HW_MACRO_VOTE and LPASS_HW_DCODEC_VOTE -> two hw_block_ids -> two devotes at boot. The
+devote is fire-and-forget (apr_send_pkt, no RSP wait) and q6afe_callback() has no case for 0x100f6,
+so the ADSP's NAK (status=1) lands in the APR_BASIC_RSP_RESULT default -> also "Unknown cmd 0x100f6".
+The matching VOTE (0x100f4) succeeds and audio works (speakers/mics verified earlier), so the a52q
+ADSP firmware simply does not implement the DEVOTE opcode; the core block stays voted. This is the
+standard sc7180/sm7125 LPASS macro clock path, not an a52q DT/machine-driver misconfiguration. No
+code change — a real fix would be a generic q6afe callback/firmware-capability change, out of scope.
+
+### 3. aux_bridge "error -ENODEV: failed to acquire drm_bridge" — SKIPPED (harmless, required wiring)
+Source: drm_aux_bridge_probe() -> devm_drm_of_get_bridge() returns -ENODEV. The aux bridge is
+registered unconditionally by the USB QMP combo PHY (phy-qcom-qmp-combo.c:5286). Its downstream
+lookup reads the PHY's OF-graph port@0 (usb_1_qmpphy_out in sc7180.dtsi), which is an empty
+endpoint { } on a52q because the phone has no DisplayPort-over-Type-C sink (USB2-only via the
+sm5714 MUIC; dwc3 maximum-speed = "high-speed").
+The qmpphy must stay status=okay because the base sc7180 dwc3 still references it as "usb3-phy";
+disabling it without also rewriting the dwc3 phys/graph would EPROBE_DEFER dwc3 and kill USB (our
+only phone access, untestable here). Sibling mainline sm7125 phones (xiaomi curtana) keep qmpphy
+enabled and carry the same benign message. USB works; DP is absent by design. No DT change.
+
+## 2026-10-03: USB xhci role-flap storm when cable unplugged (FIXED)
+Symptom (AUDIT.md D2): cable unplugged -> xhci host controller add/remove ~every 0.3 s
+(1487 cycles / 2974 "remove" lines in boot -2; first b-2:10078), usb0 gadget wedged, log
+bloat, CPU churn. Storm begins the instant the gadget UDC goes "not attached" (laptop-side
+cable drop; last `hb ... configured` at 4495.5, first xhci at 4496.2).
+
+ROOT CAUSE (evidence): during the storm the only kernel lines are xhci add/remove - no
+extcon, and dwc3 host mode on this DT is driven solely by the usb-role-switch from
+sm5714-cc (typec@33). So the role is being flipped HOST<->DEVICE ~3x/s. Mechanism: the
+driver leaves the CC block in free-running DRP (CNTL1=0x41); with nothing plugged the DRP
+toggle latches a *phantom sink* (we=host) on the source-advertise half of each cycle
+(attach lasts ~85 ms before the detach, b-2:4496.244->4496.329). sm5714_cc_update() acted
+on every raw attach immediately -> usb_role_switch_set_role(HOST) + VBUS on -> xhci
+registered -> next detach -> DEVICE -> xhci removed. No debounce.
+
+The /etc/usb-otg-fixup.sh oneshot (usb-otg-fixup.service, 6.14-era) is NOT the storm
+trigger but is now fully redundant AND partly harmful: all three pokes are handled in 7.3 -
+(1) gpio104 bias-disable = DT typec_int pinctrl (a52q.dts:465, applied via
+pinctrl-names="default"); (2) CC mask 0xe7 + CNTL1=0x41 DRP = sm5714_cc_hw_init(); (3) the
+only non-redundant poke, MUIC 0x25/0x06=0x89 "manual USB", *overrides* the kernel muic
+driver's AUTO default (sm5714-muic sets AUTO at probe, manual-USB only on host attach), so
+it fights in-kernel handling. Service does not run during the storm (oneshot, finished at
+boot 13.1 s), so it is not the flap source - but it is stale and was disabled.
+
+FIX:
+- Kernel (branch a52q/usbflap off a52q/integ, worktree ~/src/wt-usbflap):
+  drivers/usb/typec/sm5714-cc.c - debounce the host-mode commit. Only a *sink* attach
+  (we become host) is debounced (SM5714_CC_DEBOUNCE_MS=150, re-read CC_STATUS after
+  msleep; threaded IRQ can sleep). Source attach (device) + detach are the safe resting
+  states, left immediate -> gadget link still instant. Real OTG partner survives the
+  debounce; a DRP phantom clears within one toggle period, so HOST/VBUS/xhci is never
+  driven for it. Commit 9b7ac37. Build W=1 clean (O= on /tmp/claude-1000/a52build via
+  wt-nits, same base commit); checkpatch --strict clean. No DT change needed.
+- Phone: `systemctl disable usb-otg-fixup.service` (was enabled). Gadget stayed
+  configured, data_role=device after disable. Live MUIC reg left alone (kernel resets it
+  to AUTO on the next disconnect; not touched to avoid dropping the SSH link).
+
+NOT verified on-device: the unplugged storm cannot be reproduced from here (cannot unplug;
+cannot deploy a kernel - no reboot/UKI allowed). Fix is build- + checkpatch-clean and
+reasoned against the logged timing. Deploy + unplug test is the remaining step.
+
+## 2026-10-03 — a52q userspace boot-log fixes (regdb, bootmac, alsa, console-setup; rotv investigated)
+
+Five journal nags fixed in two places each: a `recipes` commit (device-a52q) for
+new images, and a live fix on the phone persisting in /etc or /var (/usr is
+read-only dm-verity). Verified live over `ssh a52r` (phone NIC is in netns "a52",
+reachable only via the ssh ProxyCommand — plain ping to 172.16.42.1 fails by design).
+
+1. **`cfg80211: failed to load regulatory.db` → regdomain now CZ.**
+   cfg80211 is built-in and asks for regulatory.db in the initrd before /usr is
+   mounted, so the first load fails and it stays on world (country 00). Plus the
+   active db is Debian-signed (`/usr/lib/firmware/regulatory.db` → alternatives →
+   debian), and this mainline kernel carries only the *upstream* regdb key, so
+   `iw reg reload` returned ENODATA (-61) — same as sm7150.
+   - Live: copied the upstream-signed pair into the firmware_class.path
+     (`/var/lib/firmware/regulatory.db{,.p7s}` from the `*-upstream` files, which
+     is searched before /usr/lib/firmware), then `iw reg reload` + `iw reg set CZ`.
+     Result: `country CZ: DFS-ETSI` (5 GHz + full TX power unlocked). Persisted the
+     CZ setting with `/etc/systemd/system/bengalos-a52q-regdb.service` (oneshot,
+     reload+set CZ) enabled via a static `multi-user.target.wants` symlink;
+     `systemctl start` → Result=success, ExecMainStatus=0.
+   - Recipe: mirrored the proven sm7150 fix in device-a52q — `wireless-regdb` in
+     Packages, `mkosi.extra/usr/lib/firmware/regulatory.db{,.p7s}` symlinked to the
+     `-upstream` variants, `bengalos-a52q-regdb.service` + its static wants symlink
+     (static, not preset: presets don't apply on an A/B /usr-only update).
+
+2. **`wld0: bootmac --wlan failed (exit 1)` → dropped; MAC already stable.**
+   `/usr/lib/udev/rules.d/90-bootmac-wifi.rules` (`KERNEL=="wlan0", RUN+=bootmac
+   --wlan`) derives a machine-id MAC and fails to apply it on ath10k_snoc (set
+   times out after 5 s). It is pointless on a52q: `a52q-efs-wifi-mac.service`
+   already reads the *factory* WiFi MAC from the Samsung EFS partition and hands it
+   to NM as `wifi.cloned-mac-address`, so the MAC is stable across boots
+   (wld0 = a8:76:50:9f:98:f0 = the EFS factory addr; the service is active and
+   its /run NM drop-in carries that addr). The bluetooth bootmac was already
+   masked (service → /dev/null); the wifi one uses RUN+= so disabling the service
+   never stopped it.
+   - Live + recipe: mask the rule with a `/dev/null` symlink
+     (`/etc/udev/rules.d/90-bootmac-wifi.rules` live; `mkosi.extra/usr/lib/udev/
+     rules.d/90-bootmac-wifi.rules` in the recipe). `udevadm control --reload` +
+     trigger: no more bootmac in the journal, MAC unchanged.
+
+3. **`controlC0: alsactl -E HOME=/run/alsa init 0 failed (exit 99)` → silenced.**
+   This card ships no alsa-lib init config, so `alsactl init` exits 99 ("no
+   soundcard config") and does nothing; the real mixer setup is UCM
+   (card0 "Samsung Galaxy A52"; `ucm2/conf.d/sm8250/samsung-SamsungGalaxyA52-.conf`
+   → the a52q UCM, driven by PipeWire). Wrapped the init in `/bin/sh -c '… || true'`
+   in `91-a52q-alsa-init.rules` so the benign 99 no longer logs as a udev failure;
+   behaviour (and audio) unchanged. Live override in /etc, recipe edit in /usr.
+   Re-trigger of `-s sound`: no exit-99.
+
+4. **iio-sensor-proxy "No 'rotv' sensor available" (compass) — investigated only.**
+   accel/light work because a patched iio-sensor-proxy talks to the SLPI/SSC over
+   QRTR via libssc and those data-types have SUIDs. libssc's compass opens a
+   `rotv` SUID (libssc-sensor-compass.c:312) — a *fusion* sensor that needs
+   accel+gyro+mag. No `rotv` SUID is registered because the AK991x magnetometer
+   isn't up on the DSP (its I2C bus/regulators in DT — the suspected earlier SEE
+   watchdog cause), and `rotv`/`mag_cal` are ADSP-image algorithms, not shipped
+   files. To enable: get the mag probing on the DSP, confirm gyro, ensure the
+   `rotv`/`geomag_rv` algos instantiate and appear in the registry; fallback is
+   patching libssc to `geomag_rv`/`mag`. Not a pure userspace fix — no change made.
+
+5. **`vtcon*: /etc/console-setup/cached_setup_font.sh` missing → masked the rule.**
+   `/usr/lib/udev/rules.d/90-console-setup.rules` runs cached_setup_font.sh /
+   cached_setup_terminal.sh, but console-setup is unconfigured on a52q (no
+   /etc/default/keyboard, no /etc/default/console-setup — `setupcon --save-only`
+   refuses), so the scripts are never generated. Same intent as sm7150 masking
+   console-setup.service/keyboard-setup.service. Masked the rule with /dev/null
+   (live `/etc/udev/rules.d/90-console-setup.rules`; recipe
+   `mkosi.extra/usr/lib/udev/rules.d/90-console-setup.rules`). Re-trigger of
+   `-s vtconsole`: no callout error.
+
+recipes commit (device-a52q only; not pushed). sm7150/usb-share working-tree
+changes present at the time were left untouched / unstaged.
+
+## 2026-10-03 — SM5714 power-supply properties for UPower (branch a52q/psy)
+
+Worktree ~/src/wt-psy (sparse: only the 4 edited files — laptop / had <700 MB
+free, a full/buildable worktree did not fit). Branch a52q/psy off a52q/integ
+(fa2fda93f9f4). Build-verified by overlaying the edited files into the sibling
+full tree ~/src/wt-nits and building the warm O= tree /tmp/claude-1000/a52build
+under `flock /tmp/claude-1000/a52build.lock`; wt-nits restored (`git checkout --`)
+after each build, left clean.
+
+Two UPower bugs (evidence: ~/linux-a52q/logs-1003/power.txt):
+1. line_power_sm5714_charger showed online=no while charging. UPower only treats
+   a POWER_SUPPLY_TYPE_USB line-power supply as a charger once it also exposes a
+   usb_type. Fix: charger now advertises POWER_SUPPLY_PROP_USB_TYPE + usb_types
+   {UNKNOWN,SDP} and reports it from the VBUS-OK bit.
+   NOTE: the charger block (I2C 0x49) cannot see the BC1.2/Type-C subtype — the
+   downstream driver (drivers/battery/charger/sm5714_charger.c) receives
+   cable_type from the MUIC (0x25, DEVICETYPE1/2 regs 0x07/0x08) via Samsung's
+   notifier, which has no upstream equivalent. So we report generic SDP while
+   powered, UNKNOWN otherwise. Richer subtype would need the MUIC/CC drivers to
+   feed the charger (bigger change, deferred).
+2. battery_sm5714_fg showed 0 Wh. FG SRAM exposes only SOC/VBAT/CURRENT/TEMP —
+   no learned-full or coulomb-count register. Fix: read charge_full_design from
+   an optional `monitored-battery` simple-battery node (CHARGE_FULL_DESIGN) and
+   derive CHARGE_NOW = design * SoC. No CHARGE_FULL (chip can't learn it); UPower
+   falls back energy_full -> energy_full_design. A52 battery EB-BA525ABY added to
+   the dts: 4500 mAh, 4.38 V max.
+
+Verification (all clean):
+- W=1: sm5714-charger.o, sm5714-fg.o compile with no warnings.
+- dt_binding_check DT_SCHEMA_FILES=siliconmitus,sm5714-fg.yaml: clean.
+- CHECK_DTBS qcom/sm7125-samsung-a52q.dtb (full schema set): 0 warnings.
+- checkpatch.pl --strict on all 4 commits: clean.
+Not pushed/merged.
+
+Upstream series regen (~/linux-a52q/upstream/power-supply-sm5714, NOT done):
+- 1/5 (dt-bindings fg) += monitored-battery.
+- 2/5 (fg driver) += CHARGE_FULL_DESIGN/CHARGE_NOW + power_supply_get_battery_info.
+- 4/5 (charger driver) += USB_TYPE prop/usb_types; 5/5 (BIT cleanup) rebases on it.
+- 3/5 (charger binding) unaffected.
+- dts battery node is device-specific, not part of this driver series.
+
+## 2026-10-03 — camera-switch hard reset: investigation (a52q/camreset, NOT fixed)
+
+Branch a52q/camreset @ a52q/integ (fa2fda9), sparse wt ~/src/wt-camreset. Build dir
+/tmp/claude-1000/a52build (a52q_defconfig, CAMSS=m S5KGW1P=m), flock a52build.lock.
+
+Symptom: phone HARD-RESETS (no log, cold boot) while GNOME Snapshot reconfigures the
+MAIN camera. Evidence logs-1003/journal-b-1.txt ~4355-4418: config#2 main 2000x1128
+streams + 11 s AF sweep (OK); config#3 main "2000x1500" → reset ~250 ms later.
+
+### Topology (from DT sm7125-samsung-a52q.dts)
+- Main = s5kgw1p, **C-PHY 3-trio**, CSIPHY0, has the AK7374 VCM (lens-focus). The ONLY
+  C-PHY sensor; all others D-PHY. It is the crashing camera (GRBG + lens in the log).
+- s5kgw1p has only TWO modes: mode[1] 4624x3468 (4:3 full), mode[2] 2000x1128 (16:9,
+  fast_1g). ONE advertised link_freq (1 GHz); fast_1g moves mode[2]'s link to ~1001.6
+  MHz too (19.2/3 * 313/2), so BOTH modes run the C-PHY at ~1 GHz — no link-rate change.
+
+### Key finding: configs #2 and #3 are IDENTICAL at the V4L2 level
+- "2000x1500" is a libcamera SoftISP (userspace) number. v4l2_find_nearest_size(2000,1500)
+  over {4624x3468, 2000x1128} → mode[2] (err 372 vs 4592). Both log lines show stride
+  2512 = width 2000 → sensor = mode[2] (2000x1128) in BOTH #2 and #3.
+- So the sensor driver does the SAME work both times. The reset correlates with the
+  *repeated* in-session reconfigure of the C-PHY main, not with the mode/size.
+
+### Candidates RULED OUT by code reading (+ researcher subagent on camss)
+- Sensor s_stream/set_fmt: set_fmt is -EBUSY while streaming and only touches s->mode/
+  ctrls (no reg writes); s_stream pm_runtime-cycles cleanly; identical mode both configs.
+- CSIPHY stale state: csiphy_set_power(on) calls hw_ops->reset every power-on
+  (camss-csiphy.c:241); power is cycled per STREAMON/STREAMOFF (v4l2_pipeline_pm_get in
+  video_prepare_streaming, camss-video.c:239). 2nd stream-on gets a fresh PHY reset.
+- CSID/VFE: reset on power-up; VFE global_reset masks IRQs; camlanes lane_cnt override is
+  saved/restored (csiphy 285-313) and main reports 3 C-PHY lanes = DT, so unchanged.
+- Size mismatch: camss has link_validate = v4l2_subdev_link_validate on csiphy/csid/vfe,
+  and vfe source follows sink (vfe_try_format 1387), video_check_format compares node vs
+  vfe source (camss-video.c:208). A sensor/pipe size mismatch would -EPIPE at STREAMON,
+  not reset. (Sensor get_fmt ACTIVE returns clamped 1128.)
+- camlanes is NOT the cause: the crash build 706d119 predates it; only s5kgw1p change
+  since is get_mbus_config (harmless for the 3-lane main).
+- video-mux: main is a DIRECT C-PHY pipeline (no mux).
+- One concrete asymmetry (not proven causal): csid_set_stream(0) is a no-op after the
+  first start (need_vc_update false), so the CSID RDI is never explicitly halted at
+  STREAMOFF before clocks are gated; it is reset on the next power-up, so benign per read.
+
+### Could NOT reproduce headless
+- `cam` does ONE config per session; single captures of every size incl. the big 4:3
+  mode[1] (1600x1200, 2048x1536) and 1920x1080 all stream fine, 0 resets.
+- Sequential/alternating cam runs (16:9↔4:3, x3) do NOT reset (close() power-cycles, so
+  each run == a fresh 1st stream-on; the bug needs in-session STREAMOFF→S_FMT→STREAMON).
+- Device lacks v4l2-ctl, media-ctl, a compiler, py-libcamera and gstreamer, so an
+  in-session reconfigure cannot be scripted by hand.
+- Phone sits at the greetd greeter (no phosh/user session), so GNOME Snapshot — the only
+  tool that does the exact reconfigure — cannot be driven remotely.
+- NOTE: a killed test `cam` left the CSIPHY0→CSID0 media link refcounted "busy"; clears
+  on the next reboot.
+
+### Strongest hypothesis + next step
+Repeated in-session reconfigure of the C-PHY main pipeline faults during the 2nd
+STREAMON, despite all blocks being reset per stream. The obvious power/clock/lane/size
+candidates are contradicted by the code, so the fault is subtler (likely a transient in
+the C-PHY teardown↔re-setup overlap in the out-of-tree SC7180 C-PHY support, or a shared
+cam_cc/CAMNOC resource glitch) and needs the actual fault captured. NO kernel fix was
+committed — a52q/camreset == integ — because every testable hypothesis was eliminated and
+shipping an unverified change to the shared camss path is higher-risk than the bug.
+To capture it: human repro (Snapshot, switch main resolution/shutter) with ramoops/pstore
+enabled, or add a temporary WARN+dump in csid_configure_stream / csiphy_lanes_enable and
+read it over netconsole; the current build has neither pstore nor netconsole.
+
+## 2026-10-03 ~12:45 — camera: CSIPHY reads 0 on first power-up; SMMU iova-0 in binned mode (orchestrator)
+- ~/linux-a52q/camrestream.py (python ctypes V4L2 restream loop on /dev/video0, modes keep/reopen/fast):
+  20x keep + 30x fast + 20x reopen on main s5kgw1p @4624x3468 → no reset (reopen after fast: frame timeouts).
+- Every `cam` session's FIRST CSIPHY power-up logs `CSIPHY 3PH HW Version = 0x00000000` (3/3), later ones 0x40010000.
+- `cam -c 2 -s role=viewfinder,width=1920,height=1080` (2000x1128 binned) → SMMU TF iova 0 SID 0x820 (VFE WM) and
+  cam hangs with no frames. Both handed to agent → branch a52q/camreset2.
+- On device now: bb7b22c (0.26.1003.2) 4/4 boots clean; backlight/regdb CZ/rtc-offset/10 s shutdown verified;
+  UPower 0 Wh needs charge_full (UPower 1.91.4 requires the attr) → d898b5c on OBS.
+
+## 2026-10-03 ~11:05 — tqftpserv mcfg + bluez/wireplumber dbus noise (coder)
+
+Two userspace log issues investigated live on a52q (bluez 5.87, pipewire 1.6.9,
+wireplumber 0.5.17, kernel 7.3.0-rc5-sm7125). Verdict for BOTH: no on-device fix
+warranted — issue 1 is benign upstream noise, issue 2 needs files that do not
+exist on any mainline-accessible partition.
+
+### Issue 1 — bluez MediaEndpoint1.NotImplemented dbus rejects (19x/boot): BENIGN
+- `dbus-daemon: Rejected send message, 0 matched rules; type=error, sender=wireplumber
+  (uid 981/60466) ... error=org.bluez.MediaEndpoint1.Error.NotImplemented, dest=bluetoothd`.
+- It is an ERROR *reply* from wireplumber (the MediaEndpoint impl) to a bluetoothd
+  method call. dbus logs it because it is not matched as a requested_reply across the
+  uid boundary (requested_reply="0"), not because a policy is missing. /usr/share/dbus-1/
+  system.d/bluetooth.conf is the stock policy and is correct (root owns org.bluez,
+  context=default may send_destination=org.bluez).
+- Bluetooth audio IS configured and functional (no headset to pair, verified via the
+  stack):
+  - hci0 up, not rfkill-blocked.
+  - Adapter1.UUIDs advertise 110a/110b (A2DP Source+Sink), 110c/110e (AVRCP),
+    111e/111f (HFP HF+AG).
+  - wireplumber registers 57 A2DP MediaEndpoint objects this boot (SBC, aptX, aptX-HD,
+    LDAC source, opus, faststream — sink+source).
+- Root cause is upstream (wireplumber returns NotImplemented for a MediaEndpoint method
+  bluetoothd probes; bluez does not track the error reply). Nothing to patch on BengalOS.
+  Upgrade path: fixed upstream in wireplumber/bluez, or hush with a dbus allow rule for
+  the error reply (not done — it would mask a harmless condition).
+
+### Issue 2 — tqftpserv rejects mcfg_sw/mcfg_hw + ota_firewall/ruleset: files absent on-device
+- Modem requests over QRTR/tqftpserv at boot:
+  /readonly/firmware/image/modem_pr/mcfg/configs/mcfg_hw/mbn_hw.dig,
+  .../mcfg_sw/{mbn_sw.dig,oem_sw.txt,mbn_sw.txt}, and /readwrite/ota_firewall/ruleset.
+- tqftpserv path mapping (linux-msm translate.c): /readonly/firmware/image/<X> is served
+  from /lib/firmware/updates/<fwdir>/<X> then /lib/firmware/<fwdir>/<X>, where
+  fwdir = dir of remoteproc0 firmware = qcom/sm7125/a52q. /readwrite/<Y> -> StateDirectory
+  /var/lib/tqftpserv/<Y>.
+- BOTH /lib/firmware and /lib/firmware/updates resolve under /usr (dm-verity, READ-ONLY);
+  tqftpserv cannot be given files there without the a52qdev sysext or a bind-mount.
+- But the files do not exist to serve anyway:
+  - Vendor `modem` vfat (sda18, image/modem_pr/mcfg/) holds ONLY index/digest files:
+    mcfg_hw/{mbn_hw.dig, mbn_hw.txt, mbn_hw_w.dig, oem_hw_w.txt}, mcfg_sw/oem_sw_w.txt.
+    The mbn_hw.txt / oem_sw_w.txt indices point to mcfg_{hw,sw}/generic/.../*.mbn PAYLOADS
+    that are NOT on the partition. `find -iname '*mcfg*.mbn'` = 0 on modem.
+  - Of the 4 requested files only mcfg_hw/mbn_hw.dig is present; the three mcfg_sw files
+    the modem wants (mbn_sw.txt/oem_sw.txt/mbn_sw.dig) are absent (only the `_w` world
+    OEM index exists). ota_firewall/ruleset is OTA state the modem creates itself.
+  - prism/optics/omr/persist (ext4) contain zero mcfg. The real mcfg MBN tree lives only
+    inside Android `super`->vendor firmware_mnt (sda25, dynamic/liblp), not exposed to the
+    mainline rootfs.
+- Serving the lone 32-byte mbn_hw.dig without its mcfg_hw.mbn payload would just move the
+  failure (modem next requests the absent .mbn). So nothing actionable.
+- Impact: none. No SIM in phone; mcfg_sw carrier profile is irrelevant. Modem boots and
+  runs on built-in defaults: remoteproc0 state=running, "remote processor modem is now up",
+  IPA running, GNSS engine locked. The tqftpserv rejects are cosmetic.
+- Upgrade path (only if carrier config is ever needed WITH a SIM): extract the mcfg
+  generic/*.mbn tree from Android super->vendor (map with dmsetup/liblp), stage it in the
+  a52qdev sysext at usr/lib/firmware/qcom/sm7125/a52q/modem_pr/mcfg/, and verify the
+  mainline modem accepts that vendor mcfg version. Not done: payloads unavailable + no SIM.
+
+## 2026-10-03 — camera A (CSIPHY ver=0) + B (VFE WM iova=0) FIXED (branch a52q/camreset2)
+
+Branch a52q/camreset2 @ a52q/integ (d898b5c), sparse wt ~/src/wt-camreset2.
+Build: overlay the 2 edited files onto ~/src/wt-nits (its camss tree is byte-
+identical to integ) and build O=/tmp/claude-1000/a52build under flock
+a52build.lock; wt-nits restored after. W=1 clean, checkpatch --strict clean,
+no DT changes.
+
+### Evidence (on-device bb7b22c, which already contains camfix2 706d119)
+`cam -c 2 --capture=1` (main s5kgw1p, 4624x3468) alone reproduces:
+  CSIPHY 3PH HW Version = 0x00000000      <- issue A, first power-up
+  VFE:0 HW Version = 1.1.0 / CSID:0 0.0.1
+  arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402,
+    iova=0x00000000, fsynr=0x1c0011, cbfrsynra=0x820, cb=8
+  FSR=[Format=2 TF] FSYNR0=[WNR PLVL=1]   <- issue B
+cam then hangs in epoll_wait with no frames. titan_top_gdsc=on, ife0/ife1=off.
+Context bank cb=8 wedges on the TF, so EVERY later capture (any resolution)
+faults too until reboot — this is why "single full captures" now fail where the
+camreset notes said they passed: the phone was left wedged by a prior binned run.
+
+### B root cause (the real bug; camfix2 was incomplete) — FIXED
+cbfrsynra 0x820 = VFE0 SID, WNR = the VFE write master DMAs to IOVA 0. The gen2
+WM double-buffers one IMAGE_ADDR reg into an internal ping/pong pair, one slot
+per frame. vfe_enable_output_v2() programs one slot per queued buffer (loop of
+CAMSS_INIT_BUF_COUNT=2). camfix2 set min_queued_buffers=1, so vb2 can start
+streaming with a SINGLE buffer queued: the loop fills only ping, pong keeps its
+reset value 0, HW writes one frame to 0 -> TF -> CB wedged -> no frames.
+camfix2's guard only caught active_num==0. The gen1 path never had this bug:
+vfe_output_init_addrs() sets pong_addr = ping_addr when buf[1] is absent.
+Fix (camss-vfe.c, vfe_enable_output_v2): when active_num==1, reprogram the WM
+with buf[0]->addr[0] once more so the pong slot points at the same buffer;
+mirrors gen1. A later 2nd buffer via vfe_queue_buffer_v2() reprograms normally.
+
+### A root cause — FIXED (and it is NOT the hard-reset cause)
+Only the FIRST power-up per session reads 0; v4l2 pipeline-PM holds the top
+GDSC on for the open fd, so later power-ups are warm and read 0x40010000. After
+SHOW_REV_ID is written, the revision latches into the common status regs with a
+propagation delay; the cold (just-clocked) block isn't settled when the
+immediate readl_relaxed runs. Fix (csiphy-3ph-1-0.c, csiphy_hw_version_read):
+poll the status regs until non-zero, bounded to ~2 ms (10 x 100-200us); warm
+reads hit on iter 0 with no delay. Doubles as a settle barrier confirming the
+PHY is clocked before csiphy_lanes_enable() programs it.
+NOTE: version=0 is benign here — the pipeline streamed past it to the VFE stage
+(the fault is downstream at the WM), so A is NOT the "camera-switch hard reset"
+trigger; that symptom (SoC cold-reboot on reconfigure) remains separate/open.
+The iova=0 wedge is a hang, not a reboot (ssh stayed up throughout).
+
+### NOT verified on-device
+The SMMU CB is wedged (cb=8) from the repro and only a reboot clears it
+(reboot not allowed here), so the fix cannot be stream-tested from this session.
+Both commits are build- + checkpatch-clean and the B fix is the direct
+completion of camfix2's own "never point the WM at 0" invariant, matched to the
+logged fault. Deploy + `cam`/Snapshot test is the remaining step.
+Commits 6ca37d2 (B), 7d0278b (A). Not pushed/merged.
+
+## 2026-10-03 15:00 — integ 75e4cb4 on device (0.26.1003.3): best state so far
+- 3/3 boots clean (modem 0 crash, Wi-Fi/BT/NFC, sensors, 5 cameras 2 frames each), 0 failed units, 0 WARNs.
+- Verified: backlight restore OK, regdb CZ, line power online + USB_TYPE, UPower 19.71 Wh (charge_full),
+  shutdown session kill 10 s (was 30), rtc-offset saved, cam viewfinder 2000x1128 10/10 frames x3 (was SMMU
+  iova-0 wedge), camrestream reopen 15/15, 0 SMMU faults.
+- Merged today: a52q/nits (s6e3fc3 backlight), a52q/usbflap (sm5714-cc sink debounce), a52q/psy (usb_type,
+  battery node, charge_*), a52q/camreset2 (gen2 pong never 0, CSIPHY rev-id poll).
+- NEEDS A HUMAN: (1) Snapshot main-camera resolution switch → hard reset (not reproduced headless);
+  (2) unplug USB cable → confirm no xhci add/remove storm; (3) >6 min touchscreen use → no GPI timeout.
+- Recipes (local, not pushed): 0d0ff02 (shutdown/rtc), ae2fdb6 (regdb/bootmac/alsa/console), 74738e1 (docs).
+
+## 2026-10-03 — SSC sensor discovery audit: mag/compass root-caused, gyro/prox explained (investigation, NOT deployed)
+
+Task: enumerate the SUIDs the ADSP discovers and explain why magnetometer,
+gyro and proximity don't surface. Device at integ 75e4cb4 (0.26.1003.3),
+accel+ALS working from boot. No ssccli/libssc CLI on the phone; `libssc.so.2`
+is present (/usr/lib/aarch64-linux-gnu) but only linked into iio-sensor-proxy,
+which hard-codes the data types it queries. Enumerated SUIDs via
+`G_MESSAGES_DEBUG=all /usr/libexec/iio-sensor-proxy` (service stop/run/restart;
+does NOT touch the ADSP, no boot-loop risk; ExecCondition guard left intact).
+
+### Discovered SUIDs (before)
+- accel  (lsm6dso, STMicro):   2286538866409242278 / 11115320498015681092  — WORKS
+- ambient_light (stk31610):    5158289438331071126 / 3046173514946711665  — WORKS
+- gyro  (lsm6dso):  co-registered with accel on the same SEE driver instance;
+  SUID exists on the ADSP but iio-sensor-proxy never queries "gyro".
+- rotv  (compass fusion):      NOT registered ("No 'rotv' sensor available").
+monitor-sensor (before): Has accelerometer (tilt face-up), Has ambient light
+(~220 lux live), **No proximity, No compass**.
+
+KEY: iio-sensor-proxy only ever queries three data types — `rotv`, `accel`,
+`ambient_light`. It never queries `mag`, `gyro` or `proximity`. So anything on
+those three is invisible to monitor-sensor regardless of the ADSP state.
+
+### Architecture facts established
+- All SEE sensor drivers/algos (lsm6dso, ak0991x, stk31610, rotv, mag_cal) are
+  **statically linked into the signed adsp.mbn** — the ADSP loads NO external
+  `sns_*.so`. The only `.so` open-failure this boot is `sns_bring_to_ear.so`
+  (a prox "bring to ear" gesture add-on), a benign probe-and-fallback. So no
+  missing-algo-file is involved for mag/gyro/rotv.
+- a52q ships the generic Qualcomm QRD configs (confirmed in device
+  proprietary-files.txt): atoll_qrd_ak991x_{0,2,6}, atoll_qrd_lsm6dso_0,
+  atoll_qrd_stk31610_0. The config tree is extracted at runtime by droid-juicer
+  from the Samsung vendor partition into /var/lib/droid-juicer/sensors/sensors/.
+- socinfo served to the SEE: soc_id 443, hw_platform IDP → the config `soc_id`
+  (407/443) and `hw_platform` (MTP/Surf/IDP) guards PASS.
+- Rails: ak0991x and lsm6dso both use only `/pmic/client/sensor_vddio` = pm6150l
+  L8 (num_rail=1), already forced always-on by a52q/ssc-rails. stk31610 uses
+  dummy rails. ak0991x dri_irq_num=0 (polled, NO interrupt GPIO needed). So the
+  mag needs **no extra DT rail and no GPIO** beyond what accel already proves on.
+
+### gyro — not a gap (userspace limit)
+lsm6dso registers accel+gyro together; accel works, so the gyro SUID is present
+on the ADSP. iio-sensor-proxy/monitor-sensor has no gyroscope D-Bus interface
+and never queries it. Not DT/registry/algo fixable; needs a libssc gyro client
+(libssc-cli has one; not built/installed here). Blocker = userspace only.
+
+### proximity — no SSC proximity sensor on a52q (by Samsung design)
+atoll_qrd_stk31610_0.json contains ONLY a `.als` section (no `.prox`), with
+dummy rails — the STK31610 is registered as ALS-only. The only prox-like part
+on a52q is the Semtech **SX9360** capacitive SAR/grip sensor (vendor DT
+`sx9360,proxthresh_reg` etc.) which is a Linux-side I2C device, NOT an SSC
+sensor. iio-sensor-proxy also doesn't query proximity in this build. Blocker =
+no SSC optical proximity hardware/config + proxy build. Not DT/registry fixable.
+
+### mag → compass (rotv) — ROOT CAUSED, registry-fixable (UNVERIFIED on device)
+All three AK0991x configs are `revision`-gated and together cover rev 0-31
+(_0: ["0,","1"], _2: ["2".."5"], _6: ["6".."31"]); lsm6dso/stk31610 have NO
+revision guard. The SEE reads `revision` from
+`/sys/class/sensors/ssc_core/ssc_hw_rev` (sns_reg.conf: `file=revision=...`).
+That path is served by the patched hexagonrpcd (patch 0004, confirmed in the
+deployed 69024-byte binary) from `<root>/sensors/ssc_core/ssc_hw_rev` — but the
+**file is not deployed**: the production registry at
+/var/lib/droid-juicer/sensors/sensors/ has no `ssc_core/` dir (droid-juicer
+only extracts vendor files; ssc_core nodes are synthetic; bengalos-a52q-ssc.conf
+doesn't create them). hexagonrpcd logs `Could not open .../ssc_hw_rev` every
+boot → the SEE gets no readable revision → **none of the revision-gated mag
+configs match → ak0991x never instantiates → rotv (needs accel+gyro+mag) can't
+build → "No rotv sensor available" → no compass.** accel/ALS are unaffected
+(no revision guard). This is the single fixable blocker and it is registry/
+config, NOT DT (rail already on, no GPIO) — so no a52q/sscsens DT commit is
+warranted.
+
+### Candidate fix (NOT applied — needs on-device test; phone was unreachable)
+Create the two synthetic registry files so the patched hexagonrpcd can serve a
+readable revision:
+  /var/lib/droid-juicer/sensors/sensors/ssc_core/ssc_hw_rev  = "0\n"
+  /var/lib/droid-juicer/sensors/sensors/ssc_core/ssc_mode    = "0\n"
+owned fastrpc:fastrpc (sources already exist at
+~/linux-a52q/sensors/root/sensors/ssc_core/). Recipe side: add two `f` lines to
+device-a52q .../tmpfiles.d/bengalos-a52q-ssc.conf creating them.
+CAVEATS to resolve during the test:
+  1. ak0991x_0's guard has a vendor typo "0," — if the SEE revision matcher is
+     strict, rev "0" won't match _0; try ssc_hw_rev="1" (clean in _0's list) —
+     all three configs are bus/slave-identical (I2C QUP4, addr 0x0C); rev only
+     selects the default cal matrix (a runtime-tunable knob, mag_cal overwrites).
+  2. Does restarting hexagonrpcd re-trigger ADSP mag registration, or is an ADSP
+     restart (forbidden) required? Prior crash history says a hexagonrpcd
+     restart DOES make the SEE re-read configs.
+  3. **SAFETY**: if the AK0991x on SSC I2C QUP4 is on a bus the ADSP can't drive
+     (the README's UTMR_CLNT_1/sns_thread_mana dead-bus watchdog), making its
+     config match could re-trigger the ADSP-fatal boot-loop. MUST be tested via
+     the README "SAFE on-device test plan" (hexagonrpcd MASKED, run the binary
+     manually once as fastrpc while watching dmesg) — NOT by just enabling the
+     service. md5-backup the registry, restore on `sensor_process crash`.
+Acceptance when the phone is free: after deploying ssc_hw_rev, re-run the
+masked-binary test; rotv should discover a SUID and monitor-sensor should show
+"Has compass". If the UTMR watchdog fires instead, the blocker is the SSC I2C
+QUP4 bus / ak0991x power inside the ADSP image — not Linux-fixable.
+
+### Why nothing was deployed/committed this session
+Phone went unreachable mid-session (sshd closing connections; another session
+held a52phone.lock running a claude-installer). The fix carries a real
+ADSP-fatal/boot-loop risk (caveat 3) and MUST be verified via the masked test
+first, so no live deploy and no recipes commit were made. No DT change (no
+a52q/sscsens branch) — the fix is registry-only.
+
+---
+
+## 2026-10-03 — CPU7/Gold-core hard hang under load (RCU stall, no NMI)
+
+### Symptom
+Under heavy load (scp/installer over USB-net, camera software ISP) the phone
+hard-resets. Captured once in full (`journalctl -b -1 -k`, 13:42):
+`rcu: INFO: rcu_preempt detected stalls ... 7-...0: ... idle=.../1/0x4000000000000000`,
+then `Sending NMI from CPU 0 to CPUs 7` / `After 10 seconds, these CPUS still
+haven't responded to the NMI: 7`, fqs climbing, system degrades to a watchdog
+reset. CPU7 does not even take the pseudo-NMI = the core is physically not
+executing.
+
+### Root cause
+A **PSCI deep-idle (power-collapse) exit that never returns** on the Gold
+(Cortex-A76) cores. The deepest idle state `big_cpu_sleep_1` /
+`cpu-sleep-1-1` ("big-rail-power-down", `arm,psci-suspend-param = 0x40000004`,
+collapses the core voltage rail) cannot be resumed by Samsung's firmware under
+load. The USB-net/scp correlation is indirect: with userspace pinned to
+CPU0-5 and dwc3 IRQ (irq153) landing only on CPU0, CPU6/7 are the idlest cores
+and cycle in/out of deep idle constantly — one exit eventually hangs.
+
+NOT a DT/defconfig divergence vs the stable 6.14 fork: `sc7180.dtsi` CPU/idle/
+psci/cpufreq_hw nodes are byte-identical between `a52q/integ` and `obs/sm7125`,
+and all CPU-relevant defconfig symbols (CPU_IDLE, ARM_PSCI_CPUIDLE_DOMAIN,
+ARM_QCOM_CPUFREQ_HW, QCOM_LMH, PREEMPT, QCOM_TSENS) match. It is a 6.14->7.3-rc5
+kernel-version-sensitive firmware interaction. There is no LMh/CPR node in the
+DT; `psci: [Firmware Bug]: failed to set PC mode: -3` (OSI unsupported ->
+platform-coordinated) is normal and shared by both kernels.
+
+### Reproducer (targeted idle-exit stress; `/root/idlestress.sh`)
+Pin a worker to CPU6 and CPU7 that `sleep`s ~7 ms (just over state2
+min-residency 5555 us) then wakes, forcing repeated state2 entry+exit
+(~60/s/core). SAFETY: arm `systemd-run --on-active=420 systemctl reboot
+--force --force` first. A plain USB-RX `dd` over ssh was too light (185 s
+clean) because it did not force enough deep-idle exits.
+
+### Evidence (A/B, same stress)
+- Baseline (state2 enabled): **HANG at ~110 s** (~6000 state2 entries on CPU7);
+  system froze so hard journald logged nothing past the start marker.
+- Mitigated (`echo 1 > cpuN/cpuidle/state2/disable` for N=6,7):
+  **CLEAN after 300 s**, `state2 usage +0`, with CPU7 taking
+  `big_cpu_sleep_0` (state1) **37,457 times** with zero issues -> state1 is
+  safe, state2 is the sole culprit.
+
+### Fix
+- DT: `arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts` override
+  `&cpu_pd6`/`&cpu_pd7` `domain-idle-states = <&big_cpu_sleep_0>` (drops
+  `big_cpu_sleep_1`). Branch `a52q/cpuhang` off `a52q/integ`, commit
+  **895c761a3810**. Verified in compiled dtb (cpu6/7 reference only
+  big_cpu_sleep_0; Silver cores keep both). W=1 + CHECK_DTBS clean (only
+  pre-existing framebuffer/reserved-memory/sm5714-fg warnings); checkpatch
+  --strict clean. NOT pushed/merged.
+- Live (phone stable now): `/etc/systemd/system/cpu-gold-idle-fix.service`
+  oneshot writes state2/disable=1 for CPU6/7, `enabled --now`.
+
+### Follow-up
+a72q (same Samsung firmware family, shared sm7125-samsung-common.dtsi) very
+likely needs the same override; not tested here (scoped to a52q). Upstream
+candidate: the real bug is PSCI CPU_SUSPEND(0x40000004) resume in Samsung's
+TZ; consider reporting.
+
+## 2026-10-03 ~16:10 — why the phone kept "falling back" to 6.14; CPU6/7 deep-idle hang
+- Gold-core hang root cause (agent, a52q/cpuhang 895c761, merged → integ f1b1dba): PSCI big-rail-power-down
+  (big_cpu_sleep_1) exit fails under load → CPU6/7 dead to NMI → RCU stall / watchdog reset. Explains the
+  Snapshot "camera" reset, the install-time crashes and the Claude Desktop hang (that one was on 6.14
+  without the workaround). DT drops big_cpu_sleep_1 from cpu_pd6/7.
+- /etc/systemd/system/cpu-gold-idle-fix.service (sysfs state2 disable on cpu6/7) re-enabled with drop-in
+  ConditionPathExists=.../cpu7/cpuidle/state2/disable → only acts on kernels without the DT fix (6.14).
+- a52q-failsafe73.service (old bring-up guard: 300 s after a 7.x boot, rm /boot/EFI/Linux/a52qtest_* and reboot
+  unless /run/keep73 exists — only accept73.sh creates it) was silently removing every 7.3 UKI → DISABLED.
+  systemd-boot counting (+1) remains the fallback.
+- Claude Code 2.1.288 in ~miro/.local/bin; Claude Desktop (claude-desktop-debian v3.3.3 arm64 AppImage,
+  extracted) in ~miro/.local/opt/claude-desktop, launcher ~/.local/share/applications/claude-desktop.desktop.
+  First extraction lost 7 files to the crash (0-byte v8 snapshot) → re-extracted + sync; broken copy left in
+  ~/.local/opt/claude-desktop.broken (owner may delete).

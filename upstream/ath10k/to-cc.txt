@@ -1,4 +1,4 @@
-Jeff Johnson <jjohnson@kernel.org> (maintainer:QUALCOMM ATHEROS ATH10K WIRELESS DRIVER)
-linux-wireless@vger.kernel.org (open list:QUALCOMM ATHEROS ATH10K WIRELESS DRIVER)
-ath10k@lists.infradead.org (open list:QUALCOMM ATHEROS ATH10K WIRELESS DRIVER)
-linux-kernel@vger.kernel.org (open list)
+ath10k@lists.infradead.org
+Jeff Johnson <jjohnson@kernel.org>
+linux-kernel@vger.kernel.org
+linux-wireless@vger.kernel.org

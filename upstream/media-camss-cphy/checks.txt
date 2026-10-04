@@ -1,0 +1,73 @@
+# checkpatch.pl --strict (media-camss-cphy)
+-----------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0001-media-qcom-camss-csiphy-3ph-Fix-lane-mask-calcula.patch
+-----------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 8 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0001-media-qcom-camss-csiphy-3ph-Fix-lane-mask-calcula.patch has no obvious style problems and is ready for submission.
+-----------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0002-media-qcom-camss-csiphy-Introduce-PHY-configurati.patch
+-----------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 28 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0002-media-qcom-camss-csiphy-Introduce-PHY-configurati.patch has no obvious style problems and is ready for submission.
+-----------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0003-media-qcom-camss-csiphy-3ph-Use-odd-bits-for-conf.patch
+-----------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 45 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0003-media-qcom-camss-csiphy-3ph-Use-odd-bits-for-conf.patch has no obvious style problems and is ready for submission.
+---------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0004-media-qcom-camss-Prepare-CSID-for-C-PHY-support.patch
+---------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 36 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0004-media-qcom-camss-Prepare-CSID-for-C-PHY-support.patch has no obvious style problems and is ready for submission.
+-----------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0005-media-qcom-camss-Initialize-lanes-after-lane-conf.patch
+-----------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 152 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0005-media-qcom-camss-Initialize-lanes-after-lane-conf.patch has no obvious style problems and is ready for submission.
+-----------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0006-media-qcom-camss-csiphy-3ph-Add-Gen2-v1.1-MIPI-CS.patch
+-----------------------------------------------------------------------------------------------------------------
+CHECK: Avoid CamelCase: <CSIPHY_LN1_CSI_3PH_CTRLn_ADDR>
+#27: FILE: drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c:53:
++#define CSIPHY_LN1_CSI_3PH_CTRLn_ADDR(n) \
+
+CHECK: Avoid CamelCase: <CSIPHY_LN3_CSI_3PH_CTRLn_ADDR>
+#29: FILE: drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c:55:
++#define CSIPHY_LN3_CSI_3PH_CTRLn_ADDR(n) \
+
+CHECK: Avoid CamelCase: <CSIPHY_LN5_CSI_3PH_CTRLn_ADDR>
+#31: FILE: drivers/media/platform/qcom/camss/camss-csiphy-3ph-1-0.c:57:
++#define CSIPHY_LN5_CSI_3PH_CTRLn_ADDR(n) \
+
+total: 0 errors, 0 warnings, 3 checks, 102 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0006-media-qcom-camss-csiphy-3ph-Add-Gen2-v1.1-MIPI-CS.patch has style problems, please review.
+-----------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0007-media-qcom-camss-csiphy-3ph-Update-Gen2-v1.1-MIPI.patch
+-----------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 43 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0007-media-qcom-camss-csiphy-3ph-Update-Gen2-v1.1-MIPI.patch has no obvious style problems and is ready for submission.
+-----------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0008-media-qcom-camss-Account-for-C-PHY-when-calculati.patch
+-----------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 85 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0008-media-qcom-camss-Account-for-C-PHY-when-calculati.patch has no obvious style problems and is ready for submission.
+-------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0009-media-qcom-camss-Enable-C-PHY-where-available.patch
+-------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 16 lines checked
+
+/home/realni/linux-a52q/upstream/media-camss-cphy/v1-0009-media-qcom-camss-Enable-C-PHY-where-available.patch has no obvious style problems and is ready for submission.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

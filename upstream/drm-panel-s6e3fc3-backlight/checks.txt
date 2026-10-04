@@ -1,0 +1,2 @@
+# checkpatch.pl --strict (drm-panel-s6e3fc3-backlight)
+clean

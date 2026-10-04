@@ -1,0 +1,159 @@
+From 8df1a6277f18a1dfcad3854be6746f59673e8c1f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Tue, 29 Sep 2026 22:59:58 +0200
+Subject: [PATCH v1 03/22] arm64: dts: qcom: sm7125-samsung-a52q: add touch,
+ charger and Type-C
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Enable the FTS5CU56A touchscreen (i2c7), the SM5714 charger and fuel
+gauge (i2c4) and the SM5714 Type-C CC block (i2c11) on the Galaxy A52.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     | 124 ++++++++++++++++++
+ 1 file changed, 124 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index ecba5be8164e..1cf0dfdc3282 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -7,6 +7,7 @@
+ 
+ /dts-v1/;
+ 
++#include <dt-bindings/interrupt-controller/irq.h>
+ #include "sm7125-samsung-common.dtsi"
+ 
+ / {
+@@ -18,3 +19,126 @@ / {
+ &rmtfs_mem {
+ 	reg = <0x0 0xf4f00000 0x0 0x202000>;
+ };
++
++&i2c4 {
++	status = "okay";
++
++	usb-switch@25 {
++		compatible = "siliconmitus,sm5714-muic";
++		reg = <0x25>;
++		mode-switch;
++
++		port {
++			sm5714_muic_ep: endpoint {
++				remote-endpoint = <&sm5714_mux_ep>;
++			};
++		};
++	};
++
++	charger@49 {
++		compatible = "siliconmitus,sm5714-charger";
++		reg = <0x49>;
++
++		siliconmitus,enable-autostop;
++		siliconmitus,input-current-limit = <1300>;
++		siliconmitus,charging-current = <1300>;
++		siliconmitus,topoff-current = <225>;
++
++		vreg_usb_otg_vbus: usb-otg-vbus {
++			regulator-name = "usb_otg_vbus";
++		};
++	};
++
++	fuel-gauge@71 {
++		compatible = "siliconmitus,sm5714-fg";
++		reg = <0x71>;
++	};
++};
++
++&i2c7 {
++	status = "okay";
++	clock-frequency = <400000>;
++
++	touchscreen@49 {
++		compatible = "st,stmfts_fts5cu56a";
++		reg = <0x49>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&tsp_int>;
++
++		interrupt-parent = <&tlmm>;
++		interrupts = <9 IRQ_TYPE_LEVEL_LOW>;
++
++		vdd-supply = <&vreg_l10a_1p8>;
++		avdd-supply = <&vreg_l7c_3p0>;
++	};
++};
++
++&i2c11 {
++	status = "okay";
++
++	typec@33 {
++		compatible = "siliconmitus,sm5714-cc";
++		reg = <0x33>;
++		interrupts-extended = <&tlmm 104 IRQ_TYPE_LEVEL_LOW>;
++
++		pinctrl-names = "default";
++		pinctrl-0 = <&typec_int>;
++
++		vbus-supply = <&vreg_usb_otg_vbus>;
++
++		connector {
++			compatible = "usb-c-connector";
++			power-role = "dual";
++			data-role = "dual";
++			try-power-role = "sink";
++			typec-power-opmode = "default";
++
++			ports {
++				#address-cells = <1>;
++				#size-cells = <0>;
++
++				port@0 {
++					reg = <0>;
++					#address-cells = <1>;
++					#size-cells = <0>;
++
++					sm5714_hs_ep: endpoint@0 {
++						reg = <0>;
++						remote-endpoint = <&usb_1_dwc3_hs>;
++					};
++
++					sm5714_mux_ep: endpoint@1 {
++						reg = <1>;
++						remote-endpoint = <&sm5714_muic_ep>;
++					};
++				};
++			};
++		};
++	};
++};
++
++&tlmm {
++	tsp_int: tsp-int-state {
++		pins = "gpio9";
++		function = "gpio";
++		bias-disable;
++		drive-strength = <2>;
++	};
++
++	typec_int: typec-int-state {
++		pins = "gpio104";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-disable;
++	};
++};
++
++&usb_1_dwc3 {
++	dr_mode = "otg";
++	usb-role-switch;
++};
++
++&usb_1_dwc3_hs {
++	remote-endpoint = <&sm5714_hs_ep>;
++};
+-- 
+2.55.0
+

@@ -1,0 +1,5 @@
+Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Jiri Slaby <jirislaby@kernel.org>
+linux-arm-msm@vger.kernel.org
+linux-kernel@vger.kernel.org
+linux-serial@vger.kernel.org

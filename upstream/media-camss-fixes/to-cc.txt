@@ -1,0 +1,9 @@
+"Bryan O'Donoghue" <bryan.odonoghue@linaro.org>
+Hans Verkuil <hverkuil@kernel.org>
+linux-arm-msm@vger.kernel.org
+linux-kernel@vger.kernel.org
+linux-media@vger.kernel.org
+Loic Poulain <loic.poulain@oss.qualcomm.com>
+Mauro Carvalho Chehab <mchehab@kernel.org>
+Todor Tomov <todor.too@gmail.com>
+Vladimir Zapolskiy <vladimir.zapolskiy@linaro.org>

@@ -1,0 +1,13 @@
+Andrew Lunn <andrew+netdev@lunn.ch>
+Conor Dooley <conor+dt@kernel.org>
+David Heidelberg <david@ixit.cz>
+"David S. Miller" <davem@davemloft.net>
+devicetree@vger.kernel.org
+Eric Dumazet <edumazet@google.com>
+Jakub Kicinski <kuba@kernel.org>
+Krzysztof Kozlowski <krzk@kernel.org>
+linux-kernel@vger.kernel.org
+netdev@vger.kernel.org
+oe-linux-nfc@lists.linux.dev
+Paolo Abeni <pabeni@redhat.com>
+Rob Herring <robh@kernel.org>

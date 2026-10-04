@@ -1,0 +1,9 @@
+David Airlie <airlied@gmail.com>
+dri-devel@lists.freedesktop.org
+Jessica Zhang <jesszhan0024@gmail.com>
+linux-kernel@vger.kernel.org
+Maarten Lankhorst <maarten.lankhorst@linux.intel.com>
+Maxime Ripard <mripard@kernel.org>
+Neil Armstrong <neil.armstrong@linaro.org>
+Simona Vetter <simona@ffwll.ch>
+Thomas Zimmermann <tzimmermann@suse.de>

@@ -1,0 +1,78 @@
+From 891bf1b3316e88879d2907afb9f18f0a6df78ff8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:28:07 +0200
+Subject: [PATCH v1] drm/msm/adreno: add SM7125 A618 speed-bin 159
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Adreno 618 in SM7125 (atoll) - e.g. the Samsung Galaxy A52 4G
+(samsung,a52q) - is fused to GPU speed-bin 159, which none of the
+existing A618 entries describe. It shares the 0x06010800 chip-id with
+sc7180 and sm7150, so it is otherwise matched by the generic
+(no .machine) A618 entry. That entry lists only the sc7180 bins
+(0/169/174) and carries no clock gating, so on SM7125 the unknown bin
+makes the driver enable every OPP including the 825 MHz TURBO_L1
+corner, and hardware clock gating is left disabled. The GPU then fails
+to come up ("missing support for speed-bin: 159", adreno_idle
+ringbuffer drain timeout, "gpu hw init failed: -22", GMU faults /
+"failed to power off SPTPRAC").
+
+Add a dedicated .machine = "qcom,sm7125" entry, mirroring the existing
+sm7150 one: same chip-id, a615 hwcg, a615_zap.mbn and speed-bin 159
+mapped to opp-supported-hw bit 3. Bin 159 corresponds to a 750 MHz
+(NOM_L1) FMAX per the downstream atoll fuse mapping (FMAX/4.8 + 2,
+rounded up).
+
+Using a per-SoC entry rather than extending the shared generic A618
+entry keeps hwcg and the new bin scoped to SM7125 and leaves the
+sc7180 chromebooks (bins 0/169/174) unchanged.
+
+Based on the sm7125-mainline tree work by Vitalii Skorkin
+<nikroks@mainlining.org>.
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/gpu/drm/msm/adreno/a6xx_catalog.c | 25 +++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+index 90a0c7ffb3c8..83e5b1f49692 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -785,6 +785,31 @@ static const struct adreno_info a6xx_gpus[] = {
+ 			{ 167, 3 },
+ 			{ 172, 4 },
+ 		),
++	}, {
++		.machine = "qcom,sm7125",
++		.chip_ids = ADRENO_CHIP_IDS(0x06010800),
++		.family = ADRENO_6XX_GEN1,
++		.revn = 618,
++		.fw = {
++			[ADRENO_FW_SQE] = "a630_sqe.fw",
++			[ADRENO_FW_GMU] = "a630_gmu.bin",
++		},
++		.gmem = SZ_512K,
++		.inactive_period = DRM_MSM_INACTIVE_PERIOD,
++		.quirks = ADRENO_QUIRK_HAS_CACHED_COHERENT |
++			  ADRENO_QUIRK_4GB_VA,
++		.funcs = &a6xx_gpu_funcs,
++		.zapfw = "a615_zap.mbn",
++		.a6xx = &(const struct a6xx_info) {
++			.hwcg = a615_hwcg,
++			.protect = &a630_protect,
++			.gmu_cgc_mode = 0x00000222,
++			.prim_fifo_threshold = 0x00180000,
++		},
++		.speedbins = ADRENO_SPEEDBINS(
++			{ 0,   0 },
++			{ 159, 3 },
++		),
+ 	}, {
+ 		.chip_ids = ADRENO_CHIP_IDS(0x06010800),
+ 		.family = ADRENO_6XX_GEN1,
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

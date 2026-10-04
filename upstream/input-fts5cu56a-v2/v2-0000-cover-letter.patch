@@ -1,0 +1,62 @@
+From 3eaf0cfe057231a9ba025878d3b179b0e19c7da5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 19:13:59 +0200
+Subject: [PATCH v2 0/2] Input: add STMicroelectronics FTS5CU56A touchscreen
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This series adds a driver and a device-tree binding for the
+STMicroelectronics FTS5CU56A capacitive multi-touch controller found on
+the Samsung Galaxy A52 (a52q) and related devices.
+
+Why a separate driver and not an extension of the existing stmfts.c
+(including David Heidelberg's in-flight "Input: support for STM FTS5"
+series, patchwork series 1174082):
+
+  Despite the shared "FTS5" generation, the A52's FTS5CU56A runs
+  STMicroelectronics' sec_ts-family firmware, whose I2C wire protocol is
+  incompatible with the ST reference firmware that stmfts.c (and the FTS5
+  extension) target. The reference firmware uses 8-byte events read via
+  opcodes 0x85/0x86 and the 0x90-0xa4 command set; the FTS5CU56A uses a
+  16-byte event FIFO read via 0x60/0x61 (with the remaining-event count in
+  byte 7), ID and firmware-version reads via 0x22/0x24, force calibration
+  0x13, a 6-byte 0xfa reset sequence and a different, bit-packed coordinate
+  and touch-type event layout. The only byte sequence the two have in
+  common is the generic scan enable/disable (0xa0 0x00 0x01/0x00), which
+  even collides in meaning (0xa0 is SYSTEM_RESET in the reference set).
+  Hosting FTS5CU56A inside stmfts.c would therefore mean bolting a second,
+  fully independent event parser and power/configure path onto shared code
+  that Heidelberg's series is actively modifying, with no shared behaviour
+  to amortise and no hardware here to verify the other two variants. A
+  standalone driver is the lower-risk, cleaner result.
+
+The driver is derived from the Samsung downstream driver that is known to
+work on the device; the command sequences and timings are preserved
+verbatim. This v2 drops the downstream debugging scaffolding (location
+strings, per-finger telemetry, verbose logging) and the separate coding
+style cleanup patch, so the driver is submitted clean in a single patch.
+The compatible is "st,fts5cu56a" (the vendor prefix already carries "st").
+
+Checked with checkpatch.pl --strict (the only remaining report is the
+"does MAINTAINERS need updating?" heuristic on the binding-only patch 1/2,
+which is resolved by the MAINTAINERS entry added in patch 2/2),
+dt_binding_check (no warnings) and a W=1 arm64 cross build of the new
+object (no warnings). Not yet tested on hardware for this revision.
+
+Miroslav Mráz (2):
+  dt-bindings: input/touchscreen: add ST FTS5CU56A
+  Input: add STMicroelectronics FTS5CU56A touchscreen driver
+
+ .../input/touchscreen/st,fts5cu56a.yaml       |  60 +++
+ MAINTAINERS                                   |   7 +
+ drivers/input/touchscreen/Kconfig             |  11 +
+ drivers/input/touchscreen/Makefile            |   1 +
+ drivers/input/touchscreen/stmfts_fts5cu56a.c  | 463 ++++++++++++++++++
+ 5 files changed, 542 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/input/touchscreen/st,fts5cu56a.yaml
+ create mode 100644 drivers/input/touchscreen/stmfts_fts5cu56a.c
+
+-- 
+2.55.0
+

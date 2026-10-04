@@ -15,12 +15,14 @@ VER=$1
 K=${2:-$HOME/src/linux-sm7125/arch/arm64/boot/vmlinuz.efi}
 D=${3:-$HOME/src/linux-sm7125/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dtb}
 U=${4:-6.14.7-sm7125}
-H=a52r
+H=${H:-a52r}
 STOCK=/boot/EFI/Linux/BengalOS_0.26.0925.2_x86-64.efi
 
 scp -q "$K" $H:/var/tmp/vmlinuz.efi
 scp -q "$D" $H:/var/tmp/a52q.dtb
-ssh $H VER="$VER" STOCK="$STOCK" U="$U" DBG="${DEBUG_CMDLINE:-}" EXTRA="${EXTRA_CMDLINE:-}" 'bash -s' <<'EOF'
+# EXTRA_INITRD: a cpio appended to the stock initrd (e.g. modules for the test kernel)
+if [ -n "${EXTRA_INITRD:-}" ]; then scp -q "$EXTRA_INITRD" $H:/var/tmp/extra.cpio; else ssh $H rm -f /var/tmp/extra.cpio; fi
+ssh $H VER="$VER" STOCK="$STOCK" U="$U" DBG="${DEBUG_CMDLINE:-}" EXTRA=$(printf %q "${EXTRA_CMDLINE:-}") 'bash -s' <<'EOF'
 set -euo pipefail
 cd /var/tmp
 # .initrd offset/size from the stock UKI's PE section table (not 4 KiB aligned)
@@ -41,6 +43,7 @@ import sys
 f = open(sys.argv[1], "rb"); f.seek(int(sys.argv[2]))
 open("initrd", "wb").write(f.read(int(sys.argv[3])))
 PY
+[ -f extra.cpio ] && cat extra.cpio >> initrd && rm extra.cpio
 # only one test UKI fits next to the two stock ones on the 1 GiB ESP; the stock
 # UKI is the fallback
 rm -f /boot/EFI/Linux/a52qtest_*

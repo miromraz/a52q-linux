@@ -1,0 +1,27 @@
+From 05bbbf79fe976f18441b7c0d381ec2e04e2a99d2 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:40:54 +0200
+Subject: [PATCH v1 0/2] media: i2c: ak7375: add support for AK7374
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Add AK7374 support to the ak7375 VCM driver (and binding), as used on
+the Samsung Galaxy A52 4G (a52q) rear camera.
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Miroslav Mráz (2):
+  dt-bindings: media: asahi-kasei,ak7375: add AK7374
+  media: i2c: ak7375: add support for AK7374
+
+ .../bindings/media/i2c/asahi-kasei,ak7375.yaml    |  1 +
+ drivers/media/i2c/ak7375.c                        | 15 +++++++++++++++
+ 2 files changed, 16 insertions(+)
+
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

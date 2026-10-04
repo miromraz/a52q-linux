@@ -1,0 +1,39 @@
+From 2764e93f8cdc5018fceadf0e564c7026be268558 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 04:02:20 +0200
+Subject: [PATCH v1 19/22] arm64: dts: qcom: sm7125-samsung: enable GPI DMA
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Some of the QUP serial engines (e.g. the touchscreen I2C at a84000)
+are set up by the firmware for GSI/GPI DMA mode, and geni-i2c then
+fails to probe without a DMA channel ("Failed to get tx DMA ch").
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+index 90bcab5921c0..5ee0ad9e6d7a 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+@@ -383,6 +383,14 @@ vreg_bob: bob {
+ 	};
+ };
+ 
++&gpi_dma0 {
++	status = "okay";
++};
++
++&gpi_dma1 {
++	status = "okay";
++};
++
+ &ipa {
+ 	memory-region = <&ipa_fw_mem>;
+ };
+-- 
+2.55.0
+

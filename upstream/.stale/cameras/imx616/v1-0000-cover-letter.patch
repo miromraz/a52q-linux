@@ -1,0 +1,38 @@
+From d7f5941cf35a92c1399065850bb2a34e15b0225f Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:23:57 +0200
+Subject: [PATCH v1 0/2] media: i2c: add Sony IMX616 sensor driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Sony IMX616 is a 32MP Quad Bayer CMOS image sensor connected over a
+4-lane MIPI CSI-2 D-PHY bus. It is the front camera of the Samsung Galaxy
+A52 4G (a52q, SM7125).
+
+This series adds a device tree binding and a V4L2 sub-device driver for
+it, built on the v4l2-cci register accessors. The register tables were
+decoded from the vendor CamX sensor module. Two binned output modes are
+supported (3264x2448 at 30 fps and 1632x1224 up to 120 fps).
+
+Tested on the Galaxy A52 with libcamera (simple pipeline, camss) on a
+downstream 6.14 kernel; the register tables are unchanged since.
+
+Miroslav Mráz (2):
+  dt-bindings: media: add Sony IMX616
+  media: i2c: add Sony IMX616 sensor driver
+
+ .../bindings/media/i2c/sony,imx616.yaml       |  99 +++
+ MAINTAINERS                                   |   7 +
+ drivers/media/i2c/Kconfig                     |  11 +
+ drivers/media/i2c/Makefile                    |   1 +
+ drivers/media/i2c/imx616.c                    | 636 ++++++++++++++++++
+ drivers/media/i2c/imx616_modes.h              | 327 +++++++++
+ 6 files changed, 1081 insertions(+)
+ create mode 100644 Documentation/devicetree/bindings/media/i2c/sony,imx616.yaml
+ create mode 100644 drivers/media/i2c/imx616.c
+ create mode 100644 drivers/media/i2c/imx616_modes.h
+
+-- 
+2.55.0
+

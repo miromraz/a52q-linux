@@ -1,0 +1,29 @@
+From 21cbe32f6237935f47831926715a3acd3f27b981 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:40:54 +0200
+Subject: [PATCH v1 0/3] ASoC: tas2562: frame-sync polarity and RX slot width
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two small tas2562 extensions needed by the Samsung Galaxy A52 4G (a52q):
+frame-sync polarity inversion and a device-tree-pinned RX slot width.
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Miroslav Mráz (3):
+  ASoC: tas2562: support frame-sync polarity inversion
+  dt-bindings: ASoC: tas2562: add ti,rx-slot-width
+  ASoC: tas2562: pin the RX slot width from the device tree
+
+ .../devicetree/bindings/sound/ti,tas2562.yaml |  8 +++
+ sound/soc/codecs/tas2562.c                    | 54 +++++++++++++++++++
+ sound/soc/codecs/tas2562.h                    |  2 +
+ 3 files changed, 64 insertions(+)
+
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

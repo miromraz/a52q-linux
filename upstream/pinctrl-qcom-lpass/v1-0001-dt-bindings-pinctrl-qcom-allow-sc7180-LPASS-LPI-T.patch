@@ -1,0 +1,54 @@
+From 2d369f839e85ae6b0f5563c9c302abc1995526dc Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:06:58 +0200
+Subject: [PATCH v1] dt-bindings: pinctrl: qcom: allow sc7180 LPASS LPI TLMM
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The LPASS Low Power Island TLMM on SC7180 is register-compatible with
+the one already described for SC7280 (same 15 pins, identical pin group
+register offsets). Rather than duplicate the schema, allow the SC7180
+compatible as a fallback pairing with the SC7280 one.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../pinctrl/qcom,sc7280-lpass-lpi-pinctrl.yaml        | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pinctrl/qcom,sc7280-lpass-lpi-pinctrl.yaml b/Documentation/devicetree/bindings/pinctrl/qcom,sc7280-lpass-lpi-pinctrl.yaml
+index bc7b8dda8837..2964cb88cb06 100644
+--- a/Documentation/devicetree/bindings/pinctrl/qcom,sc7280-lpass-lpi-pinctrl.yaml
++++ b/Documentation/devicetree/bindings/pinctrl/qcom,sc7280-lpass-lpi-pinctrl.yaml
+@@ -4,18 +4,23 @@
+ $id: http://devicetree.org/schemas/pinctrl/qcom,sc7280-lpass-lpi-pinctrl.yaml#
+ $schema: http://devicetree.org/meta-schemas/core.yaml#
+ 
+-title: Qualcomm SC7280 SoC LPASS LPI TLMM
++title: Qualcomm SC7180/SC7280 SoC LPASS LPI TLMM
+ 
+ maintainers:
+   - Srinivas Kandagatla <srinivas.kandagatla@linaro.org>
+ 
+ description:
+   Top Level Mode Multiplexer pin controller in the Low Power Audio SubSystem
+-  (LPASS) Low Power Island (LPI) of Qualcomm SC7280 SoC.
++  (LPASS) Low Power Island (LPI) of Qualcomm SC7180 and SC7280 SoCs. The SC7180
++  LPI TLMM is register-compatible with the SC7280 one.
+ 
+ properties:
+   compatible:
+-    const: qcom,sc7280-lpass-lpi-pinctrl
++    oneOf:
++      - const: qcom,sc7280-lpass-lpi-pinctrl
++      - items:
++          - const: qcom,sc7180-lpass-lpi-pinctrl
++          - const: qcom,sc7280-lpass-lpi-pinctrl
+ 
+   reg:
+     maxItems: 2
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+

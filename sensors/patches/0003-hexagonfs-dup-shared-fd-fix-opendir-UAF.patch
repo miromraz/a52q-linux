@@ -1,0 +1,131 @@
+diff --git a/hexagonrpcd/hexagonfs.c b/hexagonrpcd/hexagonfs.c
+index 94463ea..34c86e2 100644
+--- a/hexagonrpcd/hexagonfs.c
++++ b/hexagonrpcd/hexagonfs.c
+@@ -181,6 +181,29 @@ int hexagonfs_openat(struct hexagonfs_fd **fds, int rootfd, int dirfd, const cha
+ 	if (ret)
+ 		goto err;
+ 
++	/*
++	 * a52q: if the path resolved to an already-open handle (an assigned fd,
++	 * e.g. "/" or a pure "." / ".." walk) we must hand back an independent
++	 * copy. Returning the shared object would let a later close() free an fd
++	 * still referenced elsewhere (use-after-free -> SIGSEGV). destroy_file_
++	 * descriptor() leaves assigned fds untouched, so a failure here cannot
++	 * free the original.
++	 */
++	if (fd->is_assigned) {
++		struct hexagonfs_fd *dup;
++
++		if (fd->ops->clone == NULL) {
++			ret = -ENOTSUP;
++			goto err;
++		}
++
++		ret = fd->ops->clone(fd, &dup);
++		if (ret)
++			goto err;
++
++		fd = dup;
++	}
++
+ 	ret = allocate_file_number(fds, fd);
+ 	if (ret)
+ 		goto err;
+diff --git a/hexagonrpcd/hexagonfs.h b/hexagonrpcd/hexagonfs.h
+index 5d0859b..df35c66 100644
+--- a/hexagonrpcd/hexagonfs.h
++++ b/hexagonrpcd/hexagonfs.h
+@@ -44,6 +44,13 @@ struct hexagonfs_file_ops {
+ 	int (*mkdir)(struct hexagonfs_fd *dir, const char *segment, mode_t mode);
+ 	int (*stat)(struct hexagonfs_fd *fd, struct stat *stats);
+ 	int (*seek)(struct hexagonfs_fd *fd, off_t off, int whence);
++	/*
++	 * a52q: produce an independently-owned copy of an already-open dir fd.
++	 * Needed when a path resolves to an existing open handle (e.g. opendir
++	 * of the root / an empty registry base) so closing the new handle does
++	 * not free the shared original. Only directories implement this.
++	 */
++	int (*clone)(struct hexagonfs_fd *fd, struct hexagonfs_fd **out);
+ };
+ 
+ struct hexagonfs_dirent {
+diff --git a/hexagonrpcd/hexagonfs_mapped.c b/hexagonrpcd/hexagonfs_mapped.c
+index 28c5a7a..d64d6c5 100644
+--- a/hexagonrpcd/hexagonfs_mapped.c
++++ b/hexagonrpcd/hexagonfs_mapped.c
+@@ -84,6 +84,52 @@ err:
+ 	return ret;
+ }
+ 
++/*
++ * a52q: duplicate an already-open (real- or empty-backed) handle so a path that
++ * resolves to it yields an independently-closeable fd. ->up is the original
++ * (assigned) fd, which keeps close() safe; ".." from a clone therefore returns
++ * to the same dir rather than its parent, which the sensor PD never relies on.
++ */
++static int mapped_clone(struct hexagonfs_fd *fd, struct hexagonfs_fd **out)
++{
++	struct mapped_ctx *src = fd->data;
++	struct mapped_ctx *ctx = NULL;
++	struct hexagonfs_fd *nfd;
++
++	nfd = malloc(sizeof(*nfd));
++	if (nfd == NULL)
++		return -ENOMEM;
++
++	if (src != NULL) {
++		int nf;
++
++		ctx = malloc(sizeof(*ctx));
++		if (ctx == NULL) {
++			free(nfd);
++			return -ENOMEM;
++		}
++
++		nf = dup(src->fd);
++		if (nf == -1) {
++			free(ctx);
++			free(nfd);
++			return -errno;
++		}
++
++		ctx->fd = nf;
++		ctx->dir = NULL;
++	}
++
++	nfd->is_assigned = false;
++	nfd->up = fd;
++	nfd->ops = fd->ops;
++	nfd->data = ctx;
++
++	*out = nfd;
++
++	return 0;
++}
++
+ static int mapped_openat(struct hexagonfs_fd *dir,
+ 			 const char *segment,
+ 			 bool expect_dir,
+@@ -370,6 +416,7 @@ struct hexagonfs_file_ops hexagonfs_mapped_ops = {
+ 	.readdir = mapped_readdir,
+ 	.seek = mapped_seek,
+ 	.stat = mapped_stat,
++	.clone = mapped_clone,
+ };
+ 
+ struct hexagonfs_file_ops hexagonfs_mapped_or_empty_ops = {
+@@ -380,6 +427,7 @@ struct hexagonfs_file_ops hexagonfs_mapped_or_empty_ops = {
+ 	.readdir = mapped_or_empty_readdir,
+ 	.seek = mapped_or_empty_seek,
+ 	.stat = mapped_or_empty_stat,
++	.clone = mapped_clone,
+ };
+ 
+ struct hexagonfs_file_ops hexagonfs_mapped_sysfs_ops = {
+@@ -390,4 +438,5 @@ struct hexagonfs_file_ops hexagonfs_mapped_sysfs_ops = {
+ 	.readdir = mapped_readdir,
+ 	.seek = mapped_seek,
+ 	.stat = mapped_sysfs_stat,
++	.clone = mapped_clone,
+ };

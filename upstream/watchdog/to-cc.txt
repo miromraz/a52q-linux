@@ -1,6 +1,6 @@
-Wim Van Sebroeck <wim@linux-watchdog.org> (maintainer:WATCHDOG DEVICE DRIVERS,blamed_fixes:1/1=100%)
-Guenter Roeck <linux@roeck-us.net> (maintainer:WATCHDOG DEVICE DRIVERS,blamed_fixes:2/1=100%)
-Sai Prakash Ranjan <quic_saipraka@quicinc.com> (blamed_fixes:1/1=100%)
-linux-arm-msm@vger.kernel.org (open list:ARM/QUALCOMM MAILING LIST)
-linux-watchdog@vger.kernel.org (open list:WATCHDOG DEVICE DRIVERS)
-linux-kernel@vger.kernel.org (open list)
+Guenter Roeck <linux@roeck-us.net>
+linux-arm-msm@vger.kernel.org
+linux-kernel@vger.kernel.org
+linux-watchdog@vger.kernel.org
+Sai Prakash Ranjan <quic_saipraka@quicinc.com>
+Wim Van Sebroeck <wim@linux-watchdog.org>

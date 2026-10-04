@@ -1,0 +1,78 @@
+# checkpatch.pl --strict (media-sensor-gc5035)
+--------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0001-media-dt-bindings-media-i2c-Add-bindings-for-GC50.patch
+--------------------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+#16: 
+new file mode 100644
+
+total: 0 errors, 1 warnings, 0 checks, 142 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0001-media-dt-bindings-media-i2c-Add-bindings-for-GC50.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0002-media-i2c-Add-a-driver-for-the-Galaxycore-GC5035-.patch
+--------------------------------------------------------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/home/realni/src/linux-upstream/scripts/spdxcheck.py", line 11, in <module>
+    import git
+ModuleNotFoundError: No module named 'git'
+CHECK: Alignment should match open parenthesis
+#1087: FILE: drivers/media/i2c/gc5035.c:1002:
++static int gc5035_entity_init_cfg(struct v4l2_subdev *subdev,
++				struct v4l2_subdev_pad_config *cfg)
+
+CHECK: Alignment should match open parenthesis
+#1479: FILE: drivers/media/i2c/gc5035.c:1394:
++	ret = devm_regulator_bulk_get(&gc5035->client->dev,
++				       ARRAY_SIZE(gc5035_supplies),
+
+WARNING: DT compatible string "galaxycore,gc5035" appears un-documented -- check ./Documentation/devicetree/bindings/
+#1559: FILE: drivers/media/i2c/gc5035.c:1474:
++	{ .compatible = "galaxycore,gc5035" },
+
+WARNING: Prefer "GPL" over "GPL v2" - see commit bf7fbeeae6db ("module: Cure the MODULE_LICENSE "GPL" vs. "GPL v2" bogosity")
+#1579: FILE: drivers/media/i2c/gc5035.c:1494:
++MODULE_LICENSE("GPL v2");
+
+total: 0 errors, 2 warnings, 2 checks, 1533 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0002-media-i2c-Add-a-driver-for-the-Galaxycore-GC5035-.patch has style problems, please review.
+------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0003-media-i2c-gc5035-Add-OTP-configuration-handling.patch
+------------------------------------------------------------------------------------------------------------------
+CHECK: Alignment should match open parenthesis
+#411: FILE: drivers/media/i2c/gc5035.c:1124:
++	ret = readx_poll_timeout(gc5035_check_dd_load_status, gc5035,
++				val, val <= 0, GC5035_DD_DELAY_US,
+
+total: 0 errors, 0 warnings, 1 checks, 514 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0003-media-i2c-gc5035-Add-OTP-configuration-handling.patch has style problems, please review.
+--------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0004-dt-bindings-media-gc5035-use-mclk-clock-name-and-.patch
+--------------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 93 lines checked
+
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0004-dt-bindings-media-gc5035-use-mclk-clock-name-and-.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0005-media-i2c-gc5035-modernise-and-add-Galaxy-A52-a52.patch
+--------------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 459 lines checked
+
+/home/realni/linux-a52q/upstream/media-sensor-gc5035/v1-0005-media-i2c-gc5035-modernise-and-add-Galaxy-A52-a52.patch has no obvious style problems and is ready for submission.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

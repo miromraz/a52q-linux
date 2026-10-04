@@ -1,0 +1,13 @@
+# checkpatch.pl --strict (power-supply-sm5714) — regenerated 2026-10-03 with psy folds
+## v1-0001-dt-bindings-power-supply-add-Silicon-Mitus-SM5714.patch
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+## v1-0002-power-supply-add-Silicon-Mitus-SM5714-fuel-gauge-.patch
+WARNING: DT compatible string "siliconmitus,sm5714-fg" appears un-documented -- check ./Documentation/devicetree/bindings/
+## v1-0003-dt-bindings-power-supply-add-Silicon-Mitus-SM5714.patch
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+## v1-0004-power-supply-add-Silicon-Mitus-SM5714-charger-dri.patch
+WARNING: added, moved or deleted file(s), does MAINTAINERS need updating?
+WARNING: DT compatible string "siliconmitus,sm5714-charger" appears un-documented -- check ./Documentation/devicetree/bindings/
+## v1-0005-power-supply-sm5714-charger-use-named-BIT-registe.patch
+clean
+Summary: 0 errors. Warnings are the known cross-patch DT-compat/MAINTAINERS false positives (binding present in a sibling patch of the same series).

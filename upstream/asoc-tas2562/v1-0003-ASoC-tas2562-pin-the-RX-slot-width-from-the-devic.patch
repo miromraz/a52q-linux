@@ -1,0 +1,97 @@
+From 21cbe32f6237935f47831926715a3acd3f27b981 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 01:06:59 +0200
+Subject: [PATCH v1 3/3] ASoC: tas2562: pin the RX slot width from the device
+ tree
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The RX slot length is left at its 32-bit hardware reset value and is
+never derived from the stream. When the amplifier shares an I2S/TDM
+link whose slots are narrower than 32 bits - for example two TAS2562
+on a 16-bit MI2S frame - the slot/BCLK mismatch makes the part flag a
+TDM clock error and no audio is produced.
+
+Apply the optional "ti,rx-slot-width" property once at component probe.
+When absent the reset default is kept, so existing users are unaffected.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ sound/soc/codecs/tas2562.c | 40 ++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 40 insertions(+)
+
+diff --git a/sound/soc/codecs/tas2562.c b/sound/soc/codecs/tas2562.c
+index 2289543afce0..d729f07f596d 100644
+--- a/sound/soc/codecs/tas2562.c
++++ b/sound/soc/codecs/tas2562.c
+@@ -52,6 +52,7 @@ struct tas2562_data {
+ 	struct i2c_client *client;
+ 	int v_sense_slot;
+ 	int i_sense_slot;
++	int rx_slot_width;
+ 	int volume_lvl;
+ 	int model_id;
+ 	bool dac_powered;
+@@ -397,12 +398,39 @@ static int tas2562_mute(struct snd_soc_dai *dai, int mute, int direction)
+ static int tas2562_codec_probe(struct snd_soc_component *component)
+ {
+ 	struct tas2562_data *tas2562 = snd_soc_component_get_drvdata(component);
++	int rxlen;
++	int ret;
+ 
+ 	tas2562->component = component;
+ 
+ 	if (tas2562->sdz_gpio)
+ 		gpiod_set_value_cansleep(tas2562->sdz_gpio, 1);
+ 
++	/*
++	 * The RX slot length defaults to 32 bits. On links where the frame
++	 * only carries narrower slots (e.g. a 16-bit I2S MI2S frame shared by
++	 * two amplifiers) the mismatch triggers a TDM clock error, so allow
++	 * the per-device slot length to be pinned from DT.
++	 */
++	switch (tas2562->rx_slot_width) {
++	case 16:
++		rxlen = TAS2562_TDM_CFG2_RXLEN_16B;
++		break;
++	case 24:
++		rxlen = TAS2562_TDM_CFG2_RXLEN_24B;
++		break;
++	case 32:
++		rxlen = TAS2562_TDM_CFG2_RXLEN_32B;
++		break;
++	default:
++		return 0;
++	}
++
++	ret = snd_soc_component_update_bits(component, TAS2562_TDM_CFG2,
++					    TAS2562_TDM_CFG2_RXLEN_MASK, rxlen);
++	if (ret < 0)
++		return ret;
++
+ 	return 0;
+ }
+ 
+@@ -738,6 +766,18 @@ static int tas2562_parse_dt(struct tas2562_data *tas2562)
+ 		return -EINVAL;
+ 	}
+ 
++	ret = fwnode_property_read_u32(dev->fwnode, "ti,rx-slot-width",
++				       &tas2562->rx_slot_width);
++	if (ret) {
++		tas2562->rx_slot_width = 0;
++	} else if (tas2562->rx_slot_width != 16 &&
++		   tas2562->rx_slot_width != 24 &&
++		   tas2562->rx_slot_width != 32) {
++		dev_err(dev, "Invalid ti,rx-slot-width %d\n",
++			tas2562->rx_slot_width);
++		return -EINVAL;
++	}
++
+ 	return ret;
+ }
+ 
+-- 
+2.55.0
+

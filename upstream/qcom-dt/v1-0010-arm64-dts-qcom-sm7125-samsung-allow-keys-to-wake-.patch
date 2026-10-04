@@ -1,0 +1,36 @@
+From ba3e96511a6976c34b12a84d9e15b43d4a684602 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:32:03 +0200
+Subject: [PATCH v1 10/22] arm64: dts: qcom: sm7125-samsung: allow keys to wake
+ the device
+
+Mark the volume-up button and the hall (lid) sensor as wakeup sources so
+they can resume the device from suspend.
+
+---
+ arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+index 837bb03b7a19..2f785b676718 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+@@ -49,6 +49,7 @@ button-vol-up {
+ 			gpios = <&pm6150l_gpios 8 GPIO_ACTIVE_LOW>;
+ 			linux,code = <KEY_VOLUMEUP>;
+ 			debounce-interval = <15>;
++			wakeup-source;
+ 		};
+ 
+ 		event-hall-sensor {
+@@ -57,6 +58,7 @@ event-hall-sensor {
+ 			linux,input-type = <EV_SW>;
+ 			linux,code = <SW_LID>;
+ 			debounce-interval = <15>;
++			wakeup-source;
+ 		};
+ 	};
+ 
+-- 
+2.55.0
+

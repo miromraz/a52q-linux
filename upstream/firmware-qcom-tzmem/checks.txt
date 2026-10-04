@@ -1,0 +1,4 @@
+# checkpatch.pl --strict (firmware-qcom-tzmem)
+total: 0 errors, 0 warnings, 0 checks, 7 lines checked
+
+/home/realni/linux-a52q/upstream/firmware-qcom-tzmem/v1-0001-firmware-qcom-tzmem-disable-SHM-bridge-for-SM7125.patch has no obvious style problems and is ready for submission.

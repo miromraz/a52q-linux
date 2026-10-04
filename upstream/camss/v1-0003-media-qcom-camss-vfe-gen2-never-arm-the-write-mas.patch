@@ -1,0 +1,69 @@
+From bb45a9a60291376677fed9cb3d32f3e06c06a4d5 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Sat, 3 Oct 2026 13:07:51 +0200
+Subject: [PATCH v1 3/4] media: qcom: camss: vfe-gen2: never arm the write
+ master with a zero pong buffer
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A clean capture on the Galaxy A52 (sc7180, vfe-170) still faulted the IFE
+SMMU context bank on stream-on:
+
+  arm-smmu 15000000.iommu: Unhandled context fault: fsr=0x402,
+      iova=0x00000000, fsynr=0x1c0011, cbfrsynra=0x820, cb=8
+  FSR = [Format=2 TF], FSYNR0 = [WNR PLVL=1]
+
+cbfrsynra 0x820 is the VFE0 SID, WNR is a write: the VFE write master
+DMAed a frame to IOVA 0. Once the fault is taken the context bank wedges
+and all further camss capture fails until reboot, so the camera hangs
+with no frames.
+
+The gen2 write master double-buffers its image address into an internal
+ping/pong pair and consumes one slot per frame. vfe_enable_output_v2()
+programs one slot per queued buffer, up to CAMSS_INIT_BUF_COUNT (2). With
+min_queued_buffers = 1, vb2 may start streaming with a single buffer
+queued, so only the ping slot gets an address and the pong slot keeps its
+reset value of 0 - the hardware then writes one frame to IOVA 0.
+
+The existing guard only handled the zero-buffer case. Handle the
+single-buffer case the same way the gen1 path already does in
+vfe_output_init_addrs() (pong_addr = ping_addr): point the spare slot at
+the same buffer so the write master never targets address 0. A second
+buffer queued later via vfe_queue_buffer_v2() reprograms the slot.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/media/platform/qcom/camss/camss-vfe.c | 16 ++++++++++++++++
+ 1 file changed, 16 insertions(+)
+
+diff --git a/drivers/media/platform/qcom/camss/camss-vfe.c b/drivers/media/platform/qcom/camss/camss-vfe.c
+index 295f9df412e5..43d10970b709 100644
+--- a/drivers/media/platform/qcom/camss/camss-vfe.c
++++ b/drivers/media/platform/qcom/camss/camss-vfe.c
+@@ -570,6 +570,22 @@ int vfe_enable_output_v2(struct vfe_line *line)
+ 		return -ENOBUFS;
+ 	}
+ 
++	/*
++	 * The write master double-buffers its image address into an internal
++	 * ping/pong pair and consumes one slot per frame. The loop above
++	 * programs one slot per queued buffer, so if only a single buffer was
++	 * available the second slot is left at its reset value of 0. The
++	 * hardware would then DMA a frame to IOVA 0, fault the IFE SMMU context
++	 * bank (TF, WNR) and wedge all further capture. Point the spare slot at
++	 * the same buffer so the master never targets address 0, mirroring the
++	 * gen1 path (vfe_output_init_addrs(): pong_addr = ping_addr).
++	 */
++	if (output->gen2.active_num == 1) {
++		ops->vfe_wm_update(vfe, output->wm_idx[0],
++				   output->buf[0]->addr[0], line);
++		ops->reg_update(vfe, line->id);
++	}
++
+ 	spin_unlock_irqrestore(&vfe->output_lock, flags);
+ 
+ 	return 0;
+-- 
+2.55.0
+

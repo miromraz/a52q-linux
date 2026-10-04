@@ -1,0 +1,12 @@
+# checkpatch.pl --strict (serial-geni)
+WARNING: The commit message has 'stable@', perhaps it also needs a 'Fixes:' tag?
+
+total: 0 errors, 1 warnings, 0 checks, 10 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/serial-geni/v1-0001-serial-qcom-geni-fix-line-allocation-without-seri.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

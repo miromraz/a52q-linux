@@ -1,0 +1,48 @@
+# checkpatch.pl --strict (nfc-s3fwrn5)
+------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0001-nfc-s3fwrn5-drop-of_match_ptr-from-the-I2C-driver.patch
+------------------------------------------------------------------------------------------------------------
+WARNING: Unknown commit id '9739e07fdb29', maybe rebased or not pulled?
+#6: 
+Since commit 9739e07fdb29 ("nfc: Drop __maybe_unused from of_device_id
+
+total: 0 errors, 1 warnings, 0 checks, 8 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0001-nfc-s3fwrn5-drop-of_match_ptr-from-the-I2C-driver.patch has style problems, please review.
+------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0002-nfc-s3fwrn5-use-the-s3fwrn5_i2c-string-literal-di.patch
+------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 32 lines checked
+
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0002-nfc-s3fwrn5-use-the-s3fwrn5_i2c-string-literal-di.patch has no obvious style problems and is ready for submission.
+------------------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0003-dt-bindings-net-nfc-samsung-s3fwrn5-add-the-S3NRN.patch
+------------------------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 42 lines checked
+
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0003-dt-bindings-net-nfc-samsung-s3fwrn5-add-the-S3NRN.patch has no obvious style problems and is ready for submission.
+---------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0004-nfc-s3fwrn5-enable-the-PVDD-supply.patch
+---------------------------------------------------------------------------------------------
+total: 0 errors, 0 warnings, 0 checks, 18 lines checked
+
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0004-nfc-s3fwrn5-enable-the-PVDD-supply.patch has no obvious style problems and is ready for submission.
+--------------------------------------------------------------------------------------------------
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0005-nfc-s3fwrn5-support-the-S3NRN4V-variant.patch
+--------------------------------------------------------------------------------------------------
+WARNING: DT compatible string "samsung,s3nrn4v" appears un-documented -- check ./Documentation/devicetree/bindings/
+#177: FILE: drivers/nfc/s3fwrn5/i2c.c:223:
++	{ .compatible = "samsung,s3nrn4v",
+
+total: 0 errors, 1 warnings, 0 checks, 384 lines checked
+
+NOTE: For some of the reported defects, checkpatch may be able to
+      mechanically convert to the typical style using --fix or --fix-inplace.
+
+/home/realni/linux-a52q/upstream/nfc-s3fwrn5/v1-0005-nfc-s3fwrn5-support-the-S3NRN4V-variant.patch has style problems, please review.
+
+NOTE: If any of the errors are false positives, please report
+      them to the maintainer, see CHECKPATCH in MAINTAINERS.

@@ -1,0 +1,137 @@
+From a47bec6e3a547f91683241fbc95d5fbc53134f3e Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Wed, 30 Sep 2026 00:07:58 +0200
+Subject: [PATCH v1 05/22] arm64: dts: qcom: sm7125-samsung-a52q: enable the
+ DSI panel
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Enable the display controller, the DSI host and PHY and describe the
+S6E3FC3 AMS646YD04 panel on a52q. The simple-framebuffer set up by the
+bootloader is kept; the MSM display driver takes over the framebuffer
+once it probes.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ .../boot/dts/qcom/sm7125-samsung-a52q.dts     |  6 ++
+ .../boot/dts/qcom/sm7125-samsung-common.dtsi  | 75 +++++++++++++++++--
+ 2 files changed, 76 insertions(+), 5 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+index dc9f9533c071..4bea09163ada 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-a52q.dts
+@@ -24,6 +24,12 @@ &bluetooth {
+ 	firmware-name = "sm7125/a52q/apnv11.bin";
+ };
+ 
++&display_panel {
++	compatible = "samsung,s6e3fc3-ams646yd04", "samsung,s6e3fc3";
++
++	status = "okay";
++};
++
+ &gpu_zap_shader {
+ 	firmware-name = "qcom/sm7125/a52q/a615_zap.mbn";
+ };
+diff --git a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+index e4ec8d5d1470..837bb03b7a19 100644
+--- a/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
++++ b/arch/arm64/boot/dts/qcom/sm7125-samsung-common.dtsi
+@@ -375,15 +375,52 @@ vreg_bob: bob {
+ 	};
+ };
+ 
+-&dispcc {
+-	/* HACK: disable until a panel driver is ready to retain simplefb */
+-	status = "disabled";
+-};
+-
+ &ipa {
+ 	memory-region = <&ipa_fw_mem>;
+ };
+ 
++&mdss {
++	status = "okay";
++};
++
++&mdss_dsi0 {
++	vdda-supply = <&vreg_l3c_1p2>;
++
++	status = "okay";
++
++	display_panel: panel@0 {
++		reg = <0>;
++
++		pinctrl-names = "default", "sleep";
++		pinctrl-0 = <&mdss_dsi_active>, <&mdss_te_active>;
++		pinctrl-1 = <&mdss_dsi_suspend>, <&mdss_te_suspend>;
++
++		vddio-supply = <&vreg_l13a_1p8>;
++		vci-supply = <&vreg_l18a_3p0>;
++
++		reset-gpios = <&tlmm 8 GPIO_ACTIVE_LOW>;
++
++		status = "disabled";
++
++		port {
++			panel_in: endpoint {
++				remote-endpoint = <&mdss_dsi0_out>;
++			};
++		};
++	};
++};
++
++&mdss_dsi0_out {
++	remote-endpoint = <&panel_in>;
++	data-lanes = <0 1 2 3>;
++};
++
++&mdss_dsi0_phy {
++	vdds-supply = <&vreg_l4a_0p9>;
++
++	status = "okay";
++};
++
+ &pm6150l_gpios {
+ 	key_vol_up_default: key-vol-up-default-state {
+ 		pins = "gpio8";
+@@ -452,6 +489,34 @@ &sdhc_2 {
+ &tlmm {
+ 	gpio-reserved-ranges = <59 4>; /* Fingerprint sensor SPI */
+ 
++	mdss_dsi_active: mdss-dsi-active-state {
++		pins = "gpio8";
++		function = "gpio";
++		drive-strength = <8>;
++		bias-disable;
++	};
++
++	mdss_dsi_suspend: mdss-dsi-suspend-state {
++		pins = "gpio8";
++		function = "gpio";
++		drive-strength = <2>;
++		bias-pull-down;
++	};
++
++	mdss_te_active: mdss-te-active-state {
++		pins = "gpio10";
++		function = "mdp_vsync";
++		drive-strength = <2>;
++		bias-pull-down;
++	};
++
++	mdss_te_suspend: mdss-te-suspend-state {
++		pins = "gpio10";
++		function = "mdp_vsync";
++		drive-strength = <2>;
++		bias-pull-down;
++	};
++
+ 	qup_uart3_sleep: qup-uart3-sleep-state {
+ 		cts-pins {
+ 			/*
+-- 
+2.55.0
+

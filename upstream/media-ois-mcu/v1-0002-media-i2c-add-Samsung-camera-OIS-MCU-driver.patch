@@ -1,0 +1,484 @@
+From c0c702bc6382776adb495da6190537ab27c020d3 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 00:47:26 +0200
+Subject: [PATCH v1 2/2] media: i2c: add Samsung camera OIS MCU driver
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The Samsung camera OIS MCU is an STM32G microcontroller running Samsung
+OIS firmware on an I2C bus. It stabilises a main camera module and has no
+image data path of its own; it only needs to run its init and servo
+sequence while the sensor it serves is streaming.
+
+The MCU has no state of its own that would trigger a runtime resume, so
+it is added as a runtime-PM supplier of the image sensor named by the
+"samsung,image-sensor" phandle: resuming the sensor to stream resumes and
+initialises the OIS first, and suspends it after the sensor.
+
+The register map and init/servo sequence were reverse-engineered from the
+vendor cam_ois_mcu_stm32g.c driver and verified on the Samsung Galaxy A52
+4G (a52q, SM7125).
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/media/i2c/Kconfig           |   9 +
+ drivers/media/i2c/Makefile          |   1 +
+ drivers/media/i2c/samsung-ois-mcu.c | 413 ++++++++++++++++++++++++++++
+ 3 files changed, 423 insertions(+)
+ create mode 100644 drivers/media/i2c/samsung-ois-mcu.c
+
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index 5c52007f9cbe..c2039087354e 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -949,6 +949,15 @@ config VIDEO_DW9807_VCM
+ 	  capability. This is designed for linear control of
+ 	  voice coil motors, controlled via I2C serial interface.
+ 
++config VIDEO_SAMSUNG_OIS_MCU
++	tristate "Samsung OIS MCU support"
++	depends on OF
++	help
++	  This is a driver for the Samsung camera optical image stabilisation
++	  (OIS) MCU, an STM32G microcontroller running Samsung OIS firmware
++	  controlled via I2C. It stabilises a main camera module and is powered
++	  through runtime PM as a supplier of the image sensor it serves.
++
+ endif
+ 
+ menu "Flash devices"
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index d04bd5724552..5763f154c4b5 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -140,6 +140,7 @@ obj-$(CONFIG_VIDEO_SAA711X) += saa7115.o
+ obj-$(CONFIG_VIDEO_SAA7127) += saa7127.o
+ obj-$(CONFIG_VIDEO_SAA717X) += saa717x.o
+ obj-$(CONFIG_VIDEO_SAA7185) += saa7185.o
++obj-$(CONFIG_VIDEO_SAMSUNG_OIS_MCU) += samsung-ois-mcu.o
+ obj-$(CONFIG_VIDEO_SONY_BTF_MPX) += sony-btf-mpx.o
+ obj-$(CONFIG_VIDEO_ST_MIPID02) += st-mipid02.o
+ obj-$(CONFIG_VIDEO_T4KA3) += t4ka3.o
+diff --git a/drivers/media/i2c/samsung-ois-mcu.c b/drivers/media/i2c/samsung-ois-mcu.c
+new file mode 100644
+index 000000000000..4065862b6844
+--- /dev/null
++++ b/drivers/media/i2c/samsung-ois-mcu.c
+@@ -0,0 +1,413 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Driver for the Samsung camera optical image stabilisation (OIS) MCU:
++ * an STM32G microcontroller running Samsung OIS firmware, sitting on an
++ * I2C bus at slave address 0x62. It stabilises a main camera module and
++ * has no image data path of its own; it only needs to run its init and
++ * servo sequence while the sensor it serves is streaming.
++ *
++ * The register map and sequence were reverse-engineered from the vendor
++ * cam_ois_mcu_stm32g.c driver and verified on the Samsung Galaxy A52 4G
++ * (a52q, SM7125): on that module init succeeds, the servo drives the
++ * hall/gyro registers, and clearing the control register stops it. Only
++ * the "normal camera open" path is implemented (init, centering,
++ * still/movie mode, servo off); there is no flash/bootloader/calibration
++ * write support.
++ *
++ * The MCU is powered and initialised through runtime PM. It has no state
++ * of its own that would trigger a resume, so it is linked as a runtime-PM
++ * supplier of the image sensor named by the "samsung,image-sensor"
++ * phandle: when the sensor is runtime-resumed to stream, the OIS is
++ * resumed (and initialised) first, and suspended after the sensor.
++ */
++
++#include <linux/delay.h>
++#include <linux/device.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/mod_devicetable.h>
++#include <linux/module.h>
++#include <linux/nvmem-consumer.h>
++#include <linux/of.h>
++#include <linux/pm_runtime.h>
++#include <linux/regulator/consumer.h>
++
++/* Registers (16-bit address, big-endian on the wire; values little-endian
++ * within a multi-byte field). Only what cam_ois_init()/set_ois_mode() touch.
++ */
++#define OIS_REG_CTRL		0x0000	/* servo on/off: write 0x01/0x00 */
++#define OIS_REG_MODE		0x0002	/* 0 still, 1 movie, 5 centering */
++#define OIS_REG_STATUS		0x0001	/* poll for 0x01 or 0x13 = idle/ready */
++#define OIS_REG_ERROR		0x0004
++#define OIS_REG_AF_INIT_X	0x003A
++#define OIS_REG_AF_INIT_Y	0x003B
++#define OIS_REG_SHIFT_EN	0x0039
++#define OIS_REG_GGFADEUP	0x0238
++#define OIS_REG_GGFADEDOWN	0x023A
++#define OIS_REG_GYRO_ORIENT	0x0240	/* 3 bytes: Wx pole, Wy pole, orientation */
++#define OIS_REG_GYRO_OFFSET	0x0248	/* 2x s16 LE: XGZERO, YGZERO */
++#define OIS_REG_XYGG		0x0254	/* 8 bytes from EEPROM, wide XGG/YGG */
++#define OIS_REG_TELE_POLE	0x0552	/* 2 bytes: Tx pole, Ty pole (unused, always 0) */
++#define OIS_REG_ANGLE_COMP_1	0x0348	/* 4-byte float, 0.834 for this module */
++#define OIS_REG_ANGLE_COMP_2	0x03D8	/* same value, second copy */
++#define OIS_REG_MODULE_SEL	0x00BE	/* init setting: 1 = select wide module */
++
++#define OIS_MODE_STILL		0x00
++#define OIS_MODE_MOVIE		0x01
++#define OIS_MODE_CENTERING	0x05
++
++#define OIS_STATUS_IDLE_A	0x01
++#define OIS_STATUS_IDLE_B	0x13
++
++/* Module tuning, verbatim from the vendor cam_ois_write_gyro_orientation()
++ * and cam_ois_set_angle_for_compensation() for this camera module.
++ */
++static const u8 ois_gyro_orient[3] = { 0x00, 0x01, 0x00 };
++static const u8 ois_tele_pole[2] = { 0x00, 0x00 };
++static const u8 ois_angle_comp[4] = { 0x06, 0x81, 0x55, 0x3F };
++
++/* OIS_GYRO_SCALE_FACTOR_LSM6DSO */
++#define OIS_GYRO_SCALE_FACTOR	114
++
++/* Module EEPROM layout: offset 0x1A0 = wide OIS cal mark (0xBB if valid),
++ * 0x180..0x187 = XGG/YGG. Read through nvmem cells when present.
++ */
++#define EEPROM_OIS_XYGG_LEN	8
++
++struct ois_mcu {
++	struct i2c_client *client;
++	struct gpio_desc *reset_gpio;	/* NRST, active low */
++	struct gpio_desc *boot0_gpio;	/* BOOT0, active high; kept low = main flash */
++	struct regulator *vdd;
++	struct regulator *vio;
++	struct nvmem_cell *cal_mark_cell;
++	struct nvmem_cell *xygg_cell;
++	struct device_link *sensor_link;
++};
++
++static int ois_write(struct ois_mcu *ois, u16 reg, const u8 *data, size_t len)
++{
++	u8 buf[2 + 8]; /* longest write here is 8 bytes (XYGG) */
++	struct i2c_msg msg = {
++		.addr = ois->client->addr,
++		.flags = 0,
++		.len = 2 + len,
++		.buf = buf,
++	};
++
++	if (WARN_ON(len > sizeof(buf) - 2))
++		return -EINVAL;
++
++	buf[0] = reg >> 8;
++	buf[1] = reg & 0xff;
++	memcpy(buf + 2, data, len);
++
++	return i2c_transfer(ois->client->adapter, &msg, 1) == 1 ? 0 : -EIO;
++}
++
++static int ois_write8(struct ois_mcu *ois, u16 reg, u8 val)
++{
++	return ois_write(ois, reg, &val, 1);
++}
++
++static int ois_read(struct ois_mcu *ois, u16 reg, u8 *data, size_t len)
++{
++	u8 addr[2] = { reg >> 8, reg & 0xff };
++	struct i2c_msg msgs[2] = {
++		{ .addr = ois->client->addr, .flags = 0, .len = 2, .buf = addr },
++		{ .addr = ois->client->addr, .flags = I2C_M_RD, .len = len, .buf = data },
++	};
++
++	return i2c_transfer(ois->client->adapter, msgs, 2) == 2 ? 0 : -EIO;
++}
++
++/* Poll status until idle (0x01 or 0x13), matching cam_ois_init()'s 20-try
++ * 5ms-spaced loop.
++ */
++static int ois_wait_idle(struct ois_mcu *ois, int tries)
++{
++	int i;
++	u8 status;
++
++	for (i = 0; i < tries; i++) {
++		if (!ois_read(ois, OIS_REG_STATUS, &status, 1) &&
++		    (status == OIS_STATUS_IDLE_A || status == OIS_STATUS_IDLE_B))
++			return 0;
++		usleep_range(5000, 5050);
++	}
++	return -ETIMEDOUT;
++}
++
++/* Power the MCU up: BOOT0 low (main flash boot, not the ST bootloader)
++ * before releasing NRST, then release NRST and let it settle (the vendor
++ * sysboot settle time, a safe upper bound).
++ */
++static int ois_power_on(struct ois_mcu *ois)
++{
++	int ret;
++
++	ret = regulator_enable(ois->vdd);
++	if (ret)
++		return ret;
++	ret = regulator_enable(ois->vio);
++	if (ret)
++		goto err_vdd;
++
++	gpiod_set_value_cansleep(ois->boot0_gpio, 0);
++	gpiod_set_value_cansleep(ois->reset_gpio, 1); /* assert reset (active low) */
++	usleep_range(5000, 5100);
++	gpiod_set_value_cansleep(ois->reset_gpio, 0); /* release */
++	msleep(50);
++
++	return 0;
++
++err_vdd:
++	regulator_disable(ois->vdd);
++	return ret;
++}
++
++static void ois_power_off(struct ois_mcu *ois)
++{
++	gpiod_set_value_cansleep(ois->reset_gpio, 1); /* hold in reset */
++	regulator_disable(ois->vio);
++	regulator_disable(ois->vdd);
++}
++
++/* Ports cam_ois_init() + the init settings + OIS-centering steps that happen
++ * on every real camera open.
++ */
++static int ois_android_init(struct ois_mcu *ois)
++{
++	u8 cal_mark = 0;
++	u8 xygg[EEPROM_OIS_XYGG_LEN];
++	size_t len;
++	s16 xgzero, ygzero;
++	long raw_x = 0, raw_y = 0; /* EFS gyro cal: not wired up yet, see below */
++	int ret;
++
++	ret = ois_wait_idle(ois, 20);
++	if (ret)
++		return ret;
++
++	/* XGG/YGG (RAM only, not calibration-write): only if the module
++	 * reports valid OIS cal data.
++	 */
++	if (ois->cal_mark_cell) {
++		u8 *v = nvmem_cell_read(ois->cal_mark_cell, &len);
++
++		if (!IS_ERR(v)) {
++			cal_mark = v[0];
++			kfree(v);
++		}
++	}
++	if (cal_mark == 0xBB && ois->xygg_cell) {
++		u8 *v = nvmem_cell_read(ois->xygg_cell, &len);
++
++		if (!IS_ERR(v)) {
++			memcpy(xygg, v, min_t(size_t, len, sizeof(xygg)));
++			kfree(v);
++			ois_write(ois, OIS_REG_XYGG, xygg, sizeof(xygg));
++		}
++	}
++
++	ois_write(ois, OIS_REG_GYRO_ORIENT, ois_gyro_orient, sizeof(ois_gyro_orient));
++	ois_write(ois, OIS_REG_TELE_POLE, ois_tele_pole, sizeof(ois_tele_pole));
++	ois_wait_idle(ois, 5);
++
++	/*
++	 * raw_x/raw_y come from the vendor EFS FactoryApp gyro calibration,
++	 * which is not read here; a zero gyro offset is safe (the servo just
++	 * does not compensate gyro bias) and matches the vendor EEPROM
++	 * fallback path.
++	 */
++	xgzero = (s16)(raw_x * OIS_GYRO_SCALE_FACTOR / 1000);
++	ygzero = (s16)(raw_y * OIS_GYRO_SCALE_FACTOR / 1000);
++	{
++		u8 g[4] = { xgzero & 0xff, (xgzero >> 8) & 0xff,
++			    ygzero & 0xff, (ygzero >> 8) & 0xff };
++		ois_write(ois, OIS_REG_GYRO_OFFSET, g, sizeof(g));
++	}
++	ois_wait_idle(ois, 10);
++
++	ois_write8(ois, OIS_REG_AF_INIT_X, 0x80);
++	ois_write8(ois, OIS_REG_AF_INIT_Y, 0x80);
++	ois_write8(ois, OIS_REG_SHIFT_EN, 0x01);
++
++	{
++		u8 fade[2] = { 1000 & 0xff, (1000 >> 8) & 0xff };
++
++		ois_write(ois, OIS_REG_GGFADEUP, fade, sizeof(fade));
++		ois_write(ois, OIS_REG_GGFADEDOWN, fade, sizeof(fade));
++	}
++
++	ois_write(ois, OIS_REG_ANGLE_COMP_1, ois_angle_comp, sizeof(ois_angle_comp));
++	ois_write(ois, OIS_REG_ANGLE_COMP_2, ois_angle_comp, sizeof(ois_angle_comp));
++
++	ois_write8(ois, OIS_REG_MODULE_SEL, 0x01); /* select wide module */
++
++	return 0;
++}
++
++static int ois_set_mode(struct ois_mcu *ois, u8 mode)
++{
++	int ret = ois_write8(ois, OIS_REG_MODE, mode);
++
++	if (ret)
++		return ret;
++	return ois_write8(ois, OIS_REG_CTRL, 0x01); /* servo on */
++}
++
++static int ois_runtime_resume(struct device *dev)
++{
++	struct ois_mcu *ois = dev_get_drvdata(dev);
++	int ret;
++
++	ret = ois_power_on(ois);
++	if (ret)
++		return ret;
++
++	ret = ois_android_init(ois);
++	if (ret)
++		goto err;
++
++	/* Center, as the vendor OIS thread does on open, then movie mode. */
++	ret = ois_set_mode(ois, OIS_MODE_CENTERING);
++	if (ret)
++		goto err;
++	usleep_range(20000, 21000);
++
++	ret = ois_set_mode(ois, OIS_MODE_MOVIE);
++	if (ret)
++		goto err;
++
++	return 0;
++err:
++	ois_power_off(ois);
++	return ret;
++}
++
++static int ois_runtime_suspend(struct device *dev)
++{
++	struct ois_mcu *ois = dev_get_drvdata(dev);
++
++	ois_write8(ois, OIS_REG_CTRL, 0x00); /* servo off */
++	usleep_range(20000, 21000);
++	ois_power_off(ois);
++	return 0;
++}
++
++static const struct dev_pm_ops ois_pm_ops = {
++	SET_RUNTIME_PM_OPS(ois_runtime_suspend, ois_runtime_resume, NULL)
++};
++
++/*
++ * Link the OIS as a runtime-PM supplier of the image sensor it stabilises,
++ * so streaming the sensor resumes (and thus initialises) the OIS. The
++ * sensor is an I2C device; defer until it has been instantiated.
++ */
++static int ois_link_sensor(struct ois_mcu *ois)
++{
++	struct device *dev = &ois->client->dev;
++	struct device_node *np;
++	struct i2c_client *sensor;
++
++	np = of_parse_phandle(dev->of_node, "samsung,image-sensor", 0);
++	if (!np)
++		return 0;
++
++	sensor = of_find_i2c_device_by_node(np);
++	of_node_put(np);
++	if (!sensor)
++		return -EPROBE_DEFER;
++
++	ois->sensor_link = device_link_add(&sensor->dev, dev,
++					   DL_FLAG_STATELESS | DL_FLAG_PM_RUNTIME);
++	put_device(&sensor->dev);
++	if (!ois->sensor_link)
++		return -EINVAL;
++
++	return 0;
++}
++
++static int ois_probe(struct i2c_client *client)
++{
++	struct device *dev = &client->dev;
++	struct ois_mcu *ois;
++	int ret;
++
++	ois = devm_kzalloc(dev, sizeof(*ois), GFP_KERNEL);
++	if (!ois)
++		return -ENOMEM;
++
++	ois->client = client;
++	i2c_set_clientdata(client, ois);
++
++	ois->vdd = devm_regulator_get(dev, "vdd");
++	if (IS_ERR(ois->vdd))
++		return dev_err_probe(dev, PTR_ERR(ois->vdd), "getting vdd\n");
++	ois->vio = devm_regulator_get(dev, "vio");
++	if (IS_ERR(ois->vio))
++		return dev_err_probe(dev, PTR_ERR(ois->vio), "getting vio\n");
++
++	ois->reset_gpio = devm_gpiod_get(dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(ois->reset_gpio))
++		return dev_err_probe(dev, PTR_ERR(ois->reset_gpio), "getting reset gpio\n");
++	ois->boot0_gpio = devm_gpiod_get(dev, "boot0", GPIOD_OUT_LOW);
++	if (IS_ERR(ois->boot0_gpio))
++		return dev_err_probe(dev, PTR_ERR(ois->boot0_gpio), "getting boot0 gpio\n");
++
++	/* Optional: wide-cal data from the module EEPROM. Absent until the
++	 * EEPROM node exposes these nvmem cells; the servo runs without it.
++	 */
++	ois->cal_mark_cell = devm_nvmem_cell_get(dev, "cal-mark");
++	if (IS_ERR(ois->cal_mark_cell))
++		ois->cal_mark_cell = NULL;
++	ois->xygg_cell = devm_nvmem_cell_get(dev, "xygg");
++	if (IS_ERR(ois->xygg_cell))
++		ois->xygg_cell = NULL;
++
++	ret = ois_link_sensor(ois);
++	if (ret)
++		return dev_err_probe(dev, ret, "linking image sensor\n");
++
++	/* Held in reset until the sensor's runtime-resume powers us. */
++	pm_runtime_enable(dev);
++
++	return 0;
++}
++
++static void ois_remove(struct i2c_client *client)
++{
++	struct ois_mcu *ois = i2c_get_clientdata(client);
++
++	pm_runtime_disable(&client->dev);
++	if (ois->sensor_link)
++		device_link_del(ois->sensor_link);
++}
++
++static const struct i2c_device_id ois_id[] = {
++	{ "ois-mcu" },
++	{ }
++};
++MODULE_DEVICE_TABLE(i2c, ois_id);
++
++static const struct of_device_id ois_of_match[] = {
++	{ .compatible = "samsung,ois-mcu" },
++	{ }
++};
++MODULE_DEVICE_TABLE(of, ois_of_match);
++
++static struct i2c_driver ois_driver = {
++	.driver = {
++		.name = "samsung-ois-mcu",
++		.of_match_table = ois_of_match,
++		.pm = &ois_pm_ops,
++	},
++	.probe = ois_probe,
++	.remove = ois_remove,
++	.id_table = ois_id,
++};
++module_i2c_driver(ois_driver);
++
++MODULE_DESCRIPTION("Samsung camera OIS MCU driver");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

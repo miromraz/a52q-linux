@@ -1,0 +1,676 @@
+From fc414bbbef5fc08340f3cbc74aa302d4229ed814 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Wed, 30 Sep 2026 00:35:43 +0200
+Subject: [PATCH v1 3/3] Input: stmfts_fts5cu56a - clean up coding style
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Cosmetic-only cleanup of the imported downstream driver: wrap lines over
+100 columns, rename CamelCase locals and command buffers to snake_case,
+rename the sysfs show callbacks to <attr>_show and use DEVICE_ATTR_RO(),
+use max_t() for the u8 comparisons, drop unnecessary braces, reformat the
+banner and kernel-doc block comments, remove commented-out dead code and
+switch MODULE_LICENSE() to "GPL". No functional change.
+
+Signed-off-by: Miroslav Mráz <miroslav.mraz@techmania.cz>
+---
+ drivers/input/touchscreen/stmfts_fts5cu56a.c | 389 +++++++++----------
+ 1 file changed, 194 insertions(+), 195 deletions(-)
+
+diff --git a/drivers/input/touchscreen/stmfts_fts5cu56a.c b/drivers/input/touchscreen/stmfts_fts5cu56a.c
+index 078f819c3a43..4dddc383ce84 100644
+--- a/drivers/input/touchscreen/stmfts_fts5cu56a.c
++++ b/drivers/input/touchscreen/stmfts_fts5cu56a.c
+@@ -43,7 +43,6 @@ struct fts_event_coordinate {
+ 	u8 reserved_15;
+ } __packed;
+ 
+-
+ /* 16 byte */
+ struct fts_event_status {
+ 	u8 eid:2;
+@@ -94,8 +93,8 @@ struct fts_gesture_status {
+ 
+ /**
+  * struct fts_finger - Represents fingers.
+- * @ state: finger status (Event ID).
+- * @ mcount: moving counter for debug.
++ * @state: finger status (Event ID).
++ * @mcount: moving counter for debug.
+  */
+ struct fts_finger {
+ 	u8 id;
+@@ -128,7 +127,6 @@ enum tsp_power_mode {
+ 	FTS_POWER_STATE_POWERDOWN = 0,
+ 	FTS_POWER_STATE_LOWPOWER,
+ 	FTS_POWER_STATE_ACTIVE,
+-//	FTS_POWER_STATE_SLEEP,
+ };
+ 
+ #define FTS_READ_DEVICE_ID				0x22
+@@ -181,7 +179,6 @@ enum tsp_power_mode {
+ #define FTS_INFO_NOISE_MODE			0x02
+ #define FTS_INFO_XENOSENSOR_DETECT		0x04
+ 
+-
+ enum stmfts_regulators {
+ 	STMFTS_REGULATOR_VDD,
+ 	STMFTS_REGULATOR_AVDD,
+@@ -208,10 +205,10 @@ struct stmfts_data {
+ 	unsigned int all_finger_count;
+ };
+ 
+-/************************************************************
+-*  720  * 1480 : <48 96 60> indicator: 24dp navigator:48dp edge:60px dpi=320
+-* 1080  * 2220 :  4096 * 4096 : <133 266 341>  (approximately value)
+-************************************************************/
++/*
++ * 720  * 1480 : <48 96 60> indicator: 24dp navigator:48dp edge:60px dpi=320
++ * 1080  * 2220 :  4096 * 4096 : <133 266 341>  (approximately value)
++ */
+ 
+ static void location_detect(char *loc, int x, int y)
+ {
+@@ -237,13 +234,12 @@ static void location_detect(char *loc, int x, int y)
+ 
+ static const char finger_mode[10] = {'N', '1', '2', 'G', '4', 'P'};
+ 
+-//#define I2C_SMBUS_BLOCK_MAX 240
+ static u8 fts_event_handler_type_b(struct stmfts_data *sdata)
+ {
+-	u8 regAdd;
++	u8 reg_addr;
+ 	int left_event_count = 0;
+-	int EventNum = 0;
+-	u8 TouchID = 0, event_id = 0;
++	int event_num = 0;
++	u8 touch_id = 0, event_id = 0;
+ 	u8 data[FTS_FIFO_MAX * FTS_EVENT_SIZE] = {0};
+ 	u8 *event_buff;
+ 	struct fts_event_coordinate *p_event_coord;
+@@ -253,8 +249,8 @@ static u8 fts_event_handler_type_b(struct stmfts_data *sdata)
+ 	u8 prev_action = 0;
+ 	char location[FTS_TS_LOCATION_DETECT_SIZE] = { 0 };
+ 
+-	regAdd = FTS_READ_ONE_EVENT;
+-	i2c_smbus_read_i2c_block_data(sdata->client, regAdd,
++	reg_addr = FTS_READ_ONE_EVENT;
++	i2c_smbus_read_i2c_block_data(sdata->client, reg_addr,
+ 					    FTS_EVENT_SIZE, (u8 *)&data[0 * FTS_EVENT_SIZE]);
+ 	left_event_count = (data[7] & 0x1F);
+ 
+@@ -262,20 +258,22 @@ static u8 fts_event_handler_type_b(struct stmfts_data *sdata)
+ 		left_event_count = FTS_FIFO_MAX - 1;
+ 
+ 	if (left_event_count > 0) {
+-		regAdd = FTS_READ_ALL_EVENT;
+-		i2c_smbus_read_i2c_block_data(sdata->client, regAdd,
+-					    FTS_EVENT_SIZE * (left_event_count), (u8 *)&data[1 * FTS_EVENT_SIZE]);
++		reg_addr = FTS_READ_ALL_EVENT;
++		i2c_smbus_read_i2c_block_data(sdata->client, reg_addr,
++					    FTS_EVENT_SIZE * (left_event_count),
++					    (u8 *)&data[1 * FTS_EVENT_SIZE]);
+ 	}
+ 
+ 	do {
+ 		/* for event debugging */
+ 		dev_dbg(&sdata->client->dev, "[%d] %02X %02X %02X %02X %02X %02X %02X %02X\n",
+-				EventNum, data[EventNum * FTS_EVENT_SIZE+0], data[EventNum * FTS_EVENT_SIZE+1],
+-				data[EventNum * FTS_EVENT_SIZE+2], data[EventNum * FTS_EVENT_SIZE+3],
+-				data[EventNum * FTS_EVENT_SIZE+4], data[EventNum * FTS_EVENT_SIZE+5],
+-				data[EventNum * FTS_EVENT_SIZE+6], data[EventNum * FTS_EVENT_SIZE+7]);
++			event_num,
++			data[event_num * FTS_EVENT_SIZE+0], data[event_num * FTS_EVENT_SIZE+1],
++			data[event_num * FTS_EVENT_SIZE+2], data[event_num * FTS_EVENT_SIZE+3],
++			data[event_num * FTS_EVENT_SIZE+4], data[event_num * FTS_EVENT_SIZE+5],
++			data[event_num * FTS_EVENT_SIZE+6], data[event_num * FTS_EVENT_SIZE+7]);
+ 
+-		event_buff = (u8 *) &data[EventNum * FTS_EVENT_SIZE];
++		event_buff = (u8 *) &data[event_num * FTS_EVENT_SIZE];
+ 		event_id = event_buff[0] & 0x3;
+ 
+ 		switch (event_id) {
+@@ -284,84 +282,88 @@ static u8 fts_event_handler_type_b(struct stmfts_data *sdata)
+ 
+ 			if (p_event_status->stype > 0)
+ 				dev_dbg(&sdata->client->dev, "%s: STATUS %02X %02X %02X %02X %02X %02X %02X %02X\n",
+-						__func__, event_buff[0], event_buff[1], event_buff[2],
+-						event_buff[3], event_buff[4], event_buff[5],
+-						event_buff[6], event_buff[7]);
++					__func__, event_buff[0], event_buff[1],
++					event_buff[2], event_buff[3], event_buff[4],
++					event_buff[5], event_buff[6], event_buff[7]);
+ 
+ 			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR) &&
+ 					(p_event_status->status_id == FTS_ERR_EVENT_QUEUE_FULL)) {
+-				dev_dbg(&sdata->client->dev, "%s: IC Event Queue is full\n", __func__);
++				dev_dbg(&sdata->client->dev, "%s: IC Event Queue is full\n",
++					__func__);
+ 			}
+ 
+ 			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_ERROR) &&
+ 					(p_event_status->status_id == FTS_ERR_EVENT_ESD)) {
+-				dev_dbg(&sdata->client->dev, "%s: ESD detected. run reset\n", __func__);
++				dev_dbg(&sdata->client->dev, "%s: ESD detected. run reset\n",
++					__func__);
+ 			}
+ 
+ 			if ((p_event_status->stype == FTS_EVENT_STATUSTYPE_INFORMATION) &&
+ 					(p_event_status->status_id == FTS_INFO_READY_STATUS)) {
+-				if (p_event_status->status_data_1 == 0x10) {
++				if (p_event_status->status_data_1 == 0x10)
+ 					dev_dbg(&sdata->client->dev, "%s: IC Reset\n", __func__);
+-				}
+ 			}
+ 			break;
+ 
+ 		case FTS_COORDINATE_EVENT:
+ 			p_event_coord = (struct fts_event_coordinate *) event_buff;
+ 
+-			TouchID = p_event_coord->tid;
+-			if (TouchID >= STMFTS_MAX_FINGERS) {
++			touch_id = p_event_coord->tid;
++			if (touch_id >= STMFTS_MAX_FINGERS) {
+ 				dev_dbg(&sdata->client->dev,
+ 						"%s: tid(%d) is out of supported max finger number\n",
+-						__func__, TouchID);
++						__func__, touch_id);
+ 				break;
+ 			}
+ 
+-			sdata->finger[TouchID].prev_ttype = sdata->finger[TouchID].ttype;
+-			prev_action = sdata->finger[TouchID].action;
+-			sdata->finger[TouchID].id = TouchID;
+-			sdata->finger[TouchID].action = p_event_coord->tchsta;
+-			sdata->finger[TouchID].x = (p_event_coord->x_11_4 << 4) | (p_event_coord->x_3_0);
+-			sdata->finger[TouchID].y = (p_event_coord->y_11_4 << 4) | (p_event_coord->y_3_0);
+-			sdata->finger[TouchID].z = p_event_coord->z & 0x3F;
+-			sdata->finger[TouchID].ttype = p_event_coord->ttype_3_2 << 2 |
++			sdata->finger[touch_id].prev_ttype = sdata->finger[touch_id].ttype;
++			prev_action = sdata->finger[touch_id].action;
++			sdata->finger[touch_id].id = touch_id;
++			sdata->finger[touch_id].action = p_event_coord->tchsta;
++			sdata->finger[touch_id].x =
++				(p_event_coord->x_11_4 << 4) | (p_event_coord->x_3_0);
++			sdata->finger[touch_id].y =
++				(p_event_coord->y_11_4 << 4) | (p_event_coord->y_3_0);
++			sdata->finger[touch_id].z = p_event_coord->z & 0x3F;
++			sdata->finger[touch_id].ttype = p_event_coord->ttype_3_2 << 2 |
+ 							p_event_coord->ttype_1_0 << 0;
+-			sdata->finger[TouchID].major = p_event_coord->major;
+-			sdata->finger[TouchID].minor = p_event_coord->minor;
+-			sdata->finger[TouchID].max_energy = p_event_coord->max_energy;
+-			if (sdata->finger[TouchID].max_energy) {
+-				sdata->finger[TouchID].max_energy_x = sdata->finger[TouchID].x;
+-				sdata->finger[TouchID].max_energy_y = sdata->finger[TouchID].y;
++			sdata->finger[touch_id].major = p_event_coord->major;
++			sdata->finger[touch_id].minor = p_event_coord->minor;
++			sdata->finger[touch_id].max_energy = p_event_coord->max_energy;
++			if (sdata->finger[touch_id].max_energy) {
++				sdata->finger[touch_id].max_energy_x = sdata->finger[touch_id].x;
++				sdata->finger[touch_id].max_energy_y = sdata->finger[touch_id].y;
+ 			}
+ 
+-			if (!sdata->finger[TouchID].palm &&
+-					sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)
+-				sdata->finger[TouchID].palm_count++;
+-
+-			sdata->finger[TouchID].palm = (sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM);
+-			sdata->finger[TouchID].left_event = p_event_coord->left_event;
+-
+-			sdata->finger[TouchID].noise_level = p_event_coord->noise_level;
+-			sdata->finger[TouchID].max_strength = max(sdata->finger[TouchID].max_strength, p_event_coord->max_strength);
+-			sdata->finger[TouchID].hover_id_num = max(sdata->finger[TouchID].hover_id_num, (u8)p_event_coord->hover_id_num);
+-
+-			if (sdata->finger[TouchID].z <= 0)
+-				sdata->finger[TouchID].z = 1;
++			if (!sdata->finger[touch_id].palm &&
++					sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM)
++				sdata->finger[touch_id].palm_count++;
+ 
+-			if ((sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
+-					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_PALM)   ||
+-					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_WET)    ||
+-					(sdata->finger[TouchID].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
++			sdata->finger[touch_id].palm =
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM);
++			sdata->finger[touch_id].left_event = p_event_coord->left_event;
+ 
+-				location_detect(location, sdata->finger[TouchID].x, sdata->finger[TouchID].y);
++			sdata->finger[touch_id].noise_level = p_event_coord->noise_level;
++			sdata->finger[touch_id].max_strength =
++				max_t(u8, sdata->finger[touch_id].max_strength,
++					p_event_coord->max_strength);
++			sdata->finger[touch_id].hover_id_num =
++				max_t(u8, sdata->finger[touch_id].hover_id_num,
++					(u8)p_event_coord->hover_id_num);
+ 
+-				if (sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_RELEASE) {
+-					input_mt_slot(sdata->input, TouchID);
++			if (sdata->finger[touch_id].z <= 0)
++				sdata->finger[touch_id].z = 1;
+ 
+-					/*if (sdata->board->support_mt_pressure)
+-						input_report_abs(sdata->input, ABS_MT_PRESSURE, 0);*/
++			if ((sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_NORMAL) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_PALM) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_WET) ||
++				(sdata->finger[touch_id].ttype == FTS_EVENT_TOUCHTYPE_GLOVE)) {
++				location_detect(location, sdata->finger[touch_id].x,
++					sdata->finger[touch_id].y);
+ 
+-					//input_report_abs(sdata->input, ABS_MT_CUSTOM, 0);
++				if (sdata->finger[touch_id].action ==
++						FTS_COORDINATE_ACTION_RELEASE) {
++					input_mt_slot(sdata->input, touch_id);
+ 
+ 					input_mt_report_slot_state(sdata->input, MT_TOOL_FINGER, 0);
+ 
+@@ -375,57 +377,50 @@ static u8 fts_event_handler_type_b(struct stmfts_data *sdata)
+ 					}
+ 
+ 					dev_dbg(&sdata->client->dev,
+-							"[R] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d mx:%d my:%d p:%d nlvl:%d maxS:%d hid:%d\n",
+-							TouchID, location,
+-							sdata->finger[TouchID].x - sdata->finger[TouchID].p_x,
+-							sdata->finger[TouchID].y - sdata->finger[TouchID].p_y,
+-							sdata->finger[TouchID].mcount, sdata->touch_count,
+-							sdata->finger[TouchID].x, sdata->finger[TouchID].y,
+-							sdata->finger[TouchID].max_energy_x, sdata->finger[TouchID].max_energy_y,
+-							sdata->finger[TouchID].palm_count, sdata->finger[TouchID].noise_level,
+-							sdata->finger[TouchID].max_strength, sdata->finger[TouchID].hover_id_num);
+-
+-					sdata->finger[TouchID].action = FTS_COORDINATE_ACTION_NONE;
+-					sdata->finger[TouchID].mcount = 0;
+-					sdata->finger[TouchID].palm_count = 0;
+-					sdata->finger[TouchID].noise_level = 0;
+-					sdata->finger[TouchID].max_strength = 0;
+-					sdata->finger[TouchID].hover_id_num = 0;
+-
+-				} else if (sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_PRESS) {
+-
++						"[R] tID:%d loc:%s dd:%d,%d mc:%d tc:%d lx:%d ly:%d mx:%d my:%d p:%d nlvl:%d maxS:%d hid:%d\n",
++						touch_id, location,
++						sdata->finger[touch_id].x -
++						sdata->finger[touch_id].p_x,
++						sdata->finger[touch_id].y -
++						sdata->finger[touch_id].p_y,
++						sdata->finger[touch_id].mcount, sdata->touch_count,
++						sdata->finger[touch_id].x,
++						sdata->finger[touch_id].y,
++						sdata->finger[touch_id].max_energy_x,
++						sdata->finger[touch_id].max_energy_y,
++						sdata->finger[touch_id].palm_count,
++						sdata->finger[touch_id].noise_level,
++						sdata->finger[touch_id].max_strength,
++						sdata->finger[touch_id].hover_id_num);
++
++					sdata->finger[touch_id].action = FTS_COORDINATE_ACTION_NONE;
++					sdata->finger[touch_id].mcount = 0;
++					sdata->finger[touch_id].palm_count = 0;
++					sdata->finger[touch_id].noise_level = 0;
++					sdata->finger[touch_id].max_strength = 0;
++					sdata->finger[touch_id].hover_id_num = 0;
++
++				} else if (sdata->finger[touch_id].action ==
++						FTS_COORDINATE_ACTION_PRESS) {
+ 					sdata->touch_count++;
+ 					sdata->all_finger_count++;
+ 
+-					sdata->finger[TouchID].p_x = sdata->finger[TouchID].x;
+-					sdata->finger[TouchID].p_y = sdata->finger[TouchID].y;
++					sdata->finger[touch_id].p_x = sdata->finger[touch_id].x;
++					sdata->finger[touch_id].p_y = sdata->finger[touch_id].y;
+ 
+-					input_mt_slot(sdata->input, TouchID);
++					input_mt_slot(sdata->input, touch_id);
+ 					input_mt_report_slot_state(sdata->input, MT_TOOL_FINGER, 1);
+ 					input_report_key(sdata->input, BTN_TOUCH, 1);
+ 					input_report_key(sdata->input, BTN_TOOL_FINGER, 1);
+ 
+-					input_report_abs(sdata->input, ABS_MT_POSITION_X, sdata->finger[TouchID].x);
+-					input_report_abs(sdata->input, ABS_MT_POSITION_Y, sdata->finger[TouchID].y);
++					input_report_abs(sdata->input, ABS_MT_POSITION_X,
++						sdata->finger[touch_id].x);
++					input_report_abs(sdata->input, ABS_MT_POSITION_Y,
++						sdata->finger[touch_id].y);
+ 					input_report_abs(sdata->input, ABS_MT_TOUCH_MAJOR,
+-								sdata->finger[TouchID].major);
++								sdata->finger[touch_id].major);
+ 					input_report_abs(sdata->input, ABS_MT_TOUCH_MINOR,
+-								sdata->finger[TouchID].minor);
+-
+-					/*if (sdata->brush_mode)
+-						input_report_abs(sdata->input, ABS_MT_CUSTOM,
+-									(sdata->finger[TouchID].max_energy << 16) |
+-									(sdata->finger[TouchID].z << 1) |
+-									sdata->finger[TouchID].palm);
+-					else
+-						input_report_abs(sdata->input, ABS_MT_CUSTOM,
+-									(sdata->finger[TouchID].max_energy << 16) |
+-									(BRUSH_Z_DATA << 1) |
+-									sdata->finger[TouchID].palm);*/
+-
+-					/*if (sdata->board->support_mt_pressure)
+-						input_report_abs(sdata->input, ABS_MT_PRESSURE,
+-									sdata->finger[TouchID].z);*/
++								sdata->finger[touch_id].minor);
+ 
+ 					if ((sdata->touch_count > 4) && (sdata->check_multi == 0)) {
+ 						sdata->check_multi = 1;
+@@ -433,18 +428,25 @@ static u8 fts_event_handler_type_b(struct stmfts_data *sdata)
+ 					}
+ 
+ 					dev_dbg(&sdata->client->dev,
+-							"[P] tID:%d.%d x:%d y:%d z:%d major:%d minor:%d loc:%s tc:%d type:%d p:%d nlvl:%d maxS:%d hid:%d\n",
+-							TouchID, (sdata->input->mt->trkid - 1) & TRKID_MAX,
+-							sdata->finger[TouchID].x, sdata->finger[TouchID].y,
+-							sdata->finger[TouchID].z,
+-							sdata->finger[TouchID].major, sdata->finger[TouchID].minor,
+-							location, sdata->touch_count, sdata->finger[TouchID].ttype,
+-							sdata->finger[TouchID].palm_count, sdata->finger[TouchID].noise_level,
+-							sdata->finger[TouchID].max_strength, sdata->finger[TouchID].hover_id_num);
+-
+-				} else if (sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_MOVE) {
++						"[P] tID:%d.%d x:%d y:%d z:%d major:%d minor:%d loc:%s tc:%d type:%d p:%d nlvl:%d maxS:%d hid:%d\n",
++						touch_id, (sdata->input->mt->trkid - 1) & TRKID_MAX,
++						sdata->finger[touch_id].x,
++						sdata->finger[touch_id].y,
++						sdata->finger[touch_id].z,
++						sdata->finger[touch_id].major,
++						sdata->finger[touch_id].minor,
++						location, sdata->touch_count,
++						sdata->finger[touch_id].ttype,
++						sdata->finger[touch_id].palm_count,
++						sdata->finger[touch_id].noise_level,
++						sdata->finger[touch_id].max_strength,
++						sdata->finger[touch_id].hover_id_num);
++
++				} else if (sdata->finger[touch_id].action ==
++						FTS_COORDINATE_ACTION_MOVE) {
+ 					if (sdata->touch_count == 0) {
+-						dev_dbg(&sdata->client->dev, "%s: touch count 0\n", __func__);
++						dev_dbg(&sdata->client->dev, "%s: touch count 0\n",
++							__func__);
+ 						break;
+ 					}
+ 
+@@ -455,95 +457,92 @@ static u8 fts_event_handler_type_b(struct stmfts_data *sdata)
+ 						break;
+ 					}
+ 
+-					input_mt_slot(sdata->input, TouchID);
++					input_mt_slot(sdata->input, touch_id);
+ 					input_mt_report_slot_state(sdata->input, MT_TOOL_FINGER, 1);
+ 					input_report_key(sdata->input, BTN_TOUCH, 1);
+ 					input_report_key(sdata->input, BTN_TOOL_FINGER, 1);
+ 
+-					input_report_abs(sdata->input, ABS_MT_POSITION_X, sdata->finger[TouchID].x);
+-					input_report_abs(sdata->input, ABS_MT_POSITION_Y, sdata->finger[TouchID].y);
++					input_report_abs(sdata->input, ABS_MT_POSITION_X,
++						sdata->finger[touch_id].x);
++					input_report_abs(sdata->input, ABS_MT_POSITION_Y,
++						sdata->finger[touch_id].y);
+ 					input_report_abs(sdata->input, ABS_MT_TOUCH_MAJOR,
+-								sdata->finger[TouchID].major);
++								sdata->finger[touch_id].major);
+ 					input_report_abs(sdata->input, ABS_MT_TOUCH_MINOR,
+-								sdata->finger[TouchID].minor);
+-
+-					/*if (sdata->brush_mode)
+-						input_report_abs(sdata->input, ABS_MT_CUSTOM,
+-									(sdata->finger[TouchID].max_energy << 16) |
+-									(sdata->finger[TouchID].z << 1) |
+-									sdata->finger[TouchID].palm);
+-					else
+-						input_report_abs(sdata->input, ABS_MT_CUSTOM,
+-									(sdata->finger[TouchID].max_energy << 16) |
+-									(BRUSH_Z_DATA << 1) |
+-									sdata->finger[TouchID].palm);*/
+-
+-					/*if (sdata->board->support_mt_pressure)
+-						input_report_abs(sdata->input, ABS_MT_PRESSURE,
+-									sdata->finger[TouchID].z);*/
+-
+-					sdata->finger[TouchID].mcount++;
++								sdata->finger[touch_id].minor);
++
++					sdata->finger[touch_id].mcount++;
+ 				} else {
+ 					dev_dbg(&sdata->client->dev,
+-							"%s: do not support coordinate action(%d)\n",
+-							__func__, sdata->finger[TouchID].action);
++						"%s: do not support coordinate action(%d)\n",
++						__func__, sdata->finger[touch_id].action);
+ 				}
+ 
+-
+-				if (sdata->finger[TouchID].ttype != sdata->finger[TouchID].prev_ttype) {
++				if (sdata->finger[touch_id].ttype !=
++						sdata->finger[touch_id].prev_ttype) {
+ 					dev_dbg(&sdata->client->dev, "%s: tID:%d ttype(%c->%c) : %s\n",
+-							__func__, sdata->finger[TouchID].id,
+-							finger_mode[sdata->finger[TouchID].prev_ttype],
+-							finger_mode[sdata->finger[TouchID].ttype],
+-							sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_PRESS ? "P" :
+-							sdata->finger[TouchID].action == FTS_COORDINATE_ACTION_MOVE ? "M" : "R");
++						__func__, sdata->finger[touch_id].id,
++						finger_mode[sdata->finger[touch_id].prev_ttype],
++						finger_mode[sdata->finger[touch_id].ttype],
++						sdata->finger[touch_id].action ==
++							FTS_COORDINATE_ACTION_PRESS ? "P" :
++						sdata->finger[touch_id].action ==
++							FTS_COORDINATE_ACTION_MOVE ? "M" : "R");
+ 				}
+ 			} else {
+ 				dev_dbg(&sdata->client->dev,
+-						"%s: do not support coordinate type(%d)\n",
+-						__func__, sdata->finger[TouchID].ttype);
++					"%s: do not support coordinate type(%d)\n",
++					__func__, sdata->finger[touch_id].ttype);
+ 			}
+ 
+ 			break;
+ 		case FTS_GESTURE_EVENT:
+ 			p_gesture_status = (struct fts_gesture_status *)event_buff;
+ 			dev_dbg(&sdata->client->dev, "%s: [GESTURE] type:%X sf:%X id:%X | %X, %X, %X, %X\n",
+-				__func__, p_gesture_status->stype, p_gesture_status->sf, p_gesture_status->gesture_id,
++				__func__, p_gesture_status->stype, p_gesture_status->sf,
++				p_gesture_status->gesture_id,
+ 				p_gesture_status->gesture_data_1, p_gesture_status->gesture_data_2,
+ 				p_gesture_status->gesture_data_3, p_gesture_status->gesture_data_4);
+ 			break;
+ 		case FTS_VENDOR_EVENT: // just print message for debugging
+ 			if (event_buff[1] == 0x01) {  // echo event
+ 				dev_dbg(&sdata->client->dev,
+-						"%s: echo event %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+-						__func__, event_buff[0], event_buff[1], event_buff[2], event_buff[3], event_buff[4], event_buff[5],
+-						event_buff[6], event_buff[7], event_buff[8], event_buff[9], event_buff[10], event_buff[11],
+-						event_buff[12], event_buff[13], event_buff[14], event_buff[15]);
++					"%s: echo event %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
++					__func__, event_buff[0], event_buff[1],
++					event_buff[2], event_buff[3], event_buff[4],
++					event_buff[5], event_buff[6], event_buff[7],
++					event_buff[8], event_buff[9], event_buff[10],
++					event_buff[11], event_buff[12], event_buff[13],
++					event_buff[14], event_buff[15]);
+ 			} else {
+ 				dev_dbg(&sdata->client->dev,
+-						"%s: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+-						__func__, event_buff[0], event_buff[1], event_buff[2], event_buff[3], event_buff[4], event_buff[5],
+-						event_buff[6], event_buff[7], event_buff[8], event_buff[9], event_buff[10], event_buff[11],
+-						event_buff[12], event_buff[13], event_buff[14], event_buff[15]);
++					"%s: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
++					__func__, event_buff[0], event_buff[1],
++					event_buff[2], event_buff[3], event_buff[4],
++					event_buff[5], event_buff[6], event_buff[7],
++					event_buff[8], event_buff[9], event_buff[10],
++					event_buff[11], event_buff[12], event_buff[13],
++					event_buff[14], event_buff[15]);
+ 			}
+ 			break;
+ 		default:
+ 			dev_dbg(&sdata->client->dev,
+-					"%s: unknown event %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
+-						__func__, event_buff[0], event_buff[1], event_buff[2], event_buff[3], event_buff[4], event_buff[5],
+-						event_buff[6], event_buff[7], event_buff[8], event_buff[9], event_buff[10], event_buff[11],
+-						event_buff[12], event_buff[13], event_buff[14], event_buff[15]);
++				"%s: unknown event %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
++					__func__, event_buff[0], event_buff[1],
++					event_buff[2], event_buff[3], event_buff[4],
++					event_buff[5], event_buff[6], event_buff[7],
++					event_buff[8], event_buff[9], event_buff[10],
++					event_buff[11], event_buff[12], event_buff[13],
++					event_buff[14], event_buff[15]);
+ 			break;
+ 		}
+ 
+-		EventNum++;
++		event_num++;
+ 		left_event_count--;
+ 	} while (left_event_count >= 0);
+ 
+ 	input_sync(sdata->input);
+ 
+-//	fts_lfd_ctrl(info, sdata->touch_count);
+-
+ 	return 0;
+ }
+ 
+@@ -559,7 +558,7 @@ static irqreturn_t stmfts_irq_handler(int irq, void *dev)
+ 	return IRQ_HANDLED;
+ }
+ 
+-static ssize_t stmfts_sysfs_chip_id(struct device *dev,
++static ssize_t chip_id_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+ {
+ 	struct stmfts_data *sdata = dev_get_drvdata(dev);
+@@ -567,7 +566,7 @@ static ssize_t stmfts_sysfs_chip_id(struct device *dev,
+ 	return sprintf(buf, "%#x\n", sdata->chip_id);
+ }
+ 
+-static ssize_t stmfts_sysfs_chip_version(struct device *dev,
++static ssize_t chip_version_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+ {
+ 	struct stmfts_data *sdata = dev_get_drvdata(dev);
+@@ -575,7 +574,7 @@ static ssize_t stmfts_sysfs_chip_version(struct device *dev,
+ 	return sprintf(buf, "%u\n", sdata->chip_ver);
+ }
+ 
+-static ssize_t stmfts_sysfs_fw_ver(struct device *dev,
++static ssize_t fw_ver_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+ {
+ 	struct stmfts_data *sdata = dev_get_drvdata(dev);
+@@ -583,7 +582,7 @@ static ssize_t stmfts_sysfs_fw_ver(struct device *dev,
+ 	return sprintf(buf, "%u\n", sdata->fw_ver);
+ }
+ 
+-static ssize_t stmfts_sysfs_config_id(struct device *dev,
++static ssize_t config_id_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+ {
+ 	struct stmfts_data *sdata = dev_get_drvdata(dev);
+@@ -591,7 +590,7 @@ static ssize_t stmfts_sysfs_config_id(struct device *dev,
+ 	return sprintf(buf, "%#x\n", sdata->config_id);
+ }
+ 
+-static ssize_t stmfts_sysfs_config_version(struct device *dev,
++static ssize_t config_version_show(struct device *dev,
+ 				struct device_attribute *attr, char *buf)
+ {
+ 	struct stmfts_data *sdata = dev_get_drvdata(dev);
+@@ -599,11 +598,11 @@ static ssize_t stmfts_sysfs_config_version(struct device *dev,
+ 	return sprintf(buf, "%u\n", sdata->config_ver);
+ }
+ 
+-static DEVICE_ATTR(chip_id, 0444, stmfts_sysfs_chip_id, NULL);
+-static DEVICE_ATTR(chip_version, 0444, stmfts_sysfs_chip_version, NULL);
+-static DEVICE_ATTR(fw_ver, 0444, stmfts_sysfs_fw_ver, NULL);
+-static DEVICE_ATTR(config_id, 0444, stmfts_sysfs_config_id, NULL);
+-static DEVICE_ATTR(config_version, 0444, stmfts_sysfs_config_version, NULL);
++static DEVICE_ATTR_RO(chip_id);
++static DEVICE_ATTR_RO(chip_version);
++static DEVICE_ATTR_RO(fw_ver);
++static DEVICE_ATTR_RO(config_id);
++static DEVICE_ATTR_RO(config_version);
+ 
+ static struct attribute *stmfts_sysfs_attrs[] = {
+ 	&dev_attr_chip_id.attr,
+@@ -622,12 +621,12 @@ static int stmfts_power_on(struct stmfts_data *sdata)
+ {
+ 	int err;
+ 	u8 reg[8];
+-	u8 resetCmds[6] = { 0xFA, 0x20, 0x00, 0x00, 0x24, 0x81 };
++	u8 reset_cmds[6] = { 0xFA, 0x20, 0x00, 0x00, 0x24, 0x81 };
+ 	// (FTS_TOUCHTYPE_BIT_TOUCH | FTS_TOUCHTYPE_BIT_PALM | FTS_TOUCHTYPE_BIT_WET)
+-	u8 touchCmds[3] = { 0x39, 0x61, 0x00 };
+-	u8 calCmds[1] = { FTS_CMD_FORCE_CALIBRATION };
+-	u8 event_clrCmds[1] = { FTS_CMD_CLEAR_ALL_EVENT };
+-	u8 enScanCmds[3] = { 0xA0, 0x00, 0x01 };
++	u8 touch_cmds[3] = { 0x39, 0x61, 0x00 };
++	u8 cal_cmds[1] = { FTS_CMD_FORCE_CALIBRATION };
++	u8 event_clr_cmds[1] = { FTS_CMD_CLEAR_ALL_EVENT };
++	u8 en_scan_cmds[3] = { 0xA0, 0x00, 0x01 };
+ 
+ 	err = regulator_bulk_enable(ARRAY_SIZE(sdata->regulators),
+ 				    sdata->regulators);
+@@ -661,7 +660,7 @@ static int stmfts_power_on(struct stmfts_data *sdata)
+ 	sdata->chip_id = (reg[2] << 8) + reg[3];
+ 	sdata->chip_ver = reg[4];
+ 
+-	err = i2c_master_send(sdata->client, resetCmds, 6);
++	err = i2c_master_send(sdata->client, reset_cmds, 6);
+ 	if (err < 0)
+ 		return err;
+ 
+@@ -669,19 +668,19 @@ static int stmfts_power_on(struct stmfts_data *sdata)
+ 
+ 	enable_irq(sdata->client->irq);
+ 
+-	err = i2c_master_send(sdata->client, touchCmds, 3);
++	err = i2c_master_send(sdata->client, touch_cmds, 3);
+ 	if (err < 0)
+ 		return err;
+ 
+-	err = i2c_master_send(sdata->client, calCmds, 1);
++	err = i2c_master_send(sdata->client, cal_cmds, 1);
+ 	if (err < 0)
+ 		return err;
+ 
+-	err = i2c_master_send(sdata->client, event_clrCmds, 1);
++	err = i2c_master_send(sdata->client, event_clr_cmds, 1);
+ 	if (err < 0)
+ 		return err;
+ 
+-	err = i2c_master_send(sdata->client, enScanCmds, 3);
++	err = i2c_master_send(sdata->client, en_scan_cmds, 3);
+ 	if (err < 0)
+ 		return err;
+ 
+@@ -693,10 +692,10 @@ static void stmfts_power_off(void *data)
+ 	struct stmfts_data *sdata = data;
+ 	int err;
+ 
+-	u8 disScanCmds[3] = { 0xA0, 0x00, 0x00 };
++	u8 dis_scan_cmds[3] = { 0xA0, 0x00, 0x00 };
+ 
+-	err = i2c_master_send(sdata->client, disScanCmds, 3);
+-	if (err)
++	err = i2c_master_send(sdata->client, dis_scan_cmds, 3);
++	if (err < 0)
+ 		dev_warn(&sdata->client->dev,
+ 			 "failed to disable touchscreen: %d\n", err);
+ 
+@@ -850,4 +849,4 @@ module_i2c_driver(stmfts_driver);
+ 
+ MODULE_AUTHOR("Andi Shyti <andi.shyti@samsung.com>");
+ MODULE_DESCRIPTION("STMicroelectronics FTS Touch Screen");
+-MODULE_LICENSE("GPL v2");
++MODULE_LICENSE("GPL");
+-- 
+2.55.0
+

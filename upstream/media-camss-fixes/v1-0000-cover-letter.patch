@@ -1,0 +1,30 @@
+From 352fa854d425b9255c0bb3f8e1c582db156476d8 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Miroslav=20Mr=C3=A1z?= <miroslav.mraz@techmania.cz>
+Date: Thu, 1 Oct 2026 17:40:54 +0200
+Subject: [PATCH v1 0/2] media: qcom: camss: two subdev/link fixes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Two camss fixes found while bringing up the Samsung Galaxy A52 4G (a52q):
+avoid calling s_stream twice through a forwarding subdev, and follow the
+enabled link when finding the sensor.
+
+Based on v7.3-rc5. Not independently tested on hardware by the
+submitter tooling; on-device verification pending.
+
+Miroslav Mraz (2):
+  media: qcom: camss: Don't call s_stream twice through a forwarding
+    subdev
+  media: qcom: camss: Follow the enabled link when finding the sensor
+
+ .../media/platform/qcom/camss/camss-video.c   | 14 +++++
+ drivers/media/platform/qcom/camss/camss.c     | 58 +++++++++++++++++--
+ drivers/media/platform/qcom/camss/camss.h     |  1 +
+ 3 files changed, 67 insertions(+), 6 deletions(-)
+
+
+base-commit: 72d3fcf802c45d00b300f25b848a93c3a2bd7c7e
+-- 
+2.55.0
+
