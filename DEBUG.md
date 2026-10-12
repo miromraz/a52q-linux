@@ -3389,3 +3389,132 @@ TZ; consider reporting.
 - .gitignore: bench/ (1.5 GB Geekbench + debs), wifisrv/ (300 MB test file), the three static jit binaries.
 - Recipes repo: UCM Earpiece committed on the local branch a52q, NOT pushed (origin is the BengalOS team's
   repository on salsa.debian.org, not the user's).
+
+## 2026-10-12 14:25 — build service and rollback image updated; follow-up agents started
+- Rollback image: /var/tmp/a52qtest_0.26.1012.4.efi.bak on the phone = copy of the fixed UKI (sha256
+  0f3ed88a9b5d...1e105cd, also out/uki/a52qtest_0.26.1012.4.efi on dev); the pre-fix 0.26.1011.2 backups are
+  deleted (phone and dev). a52qtest_0.26.0930.1.efi.bak left alone.
+- Debug kernel branch: a52q/dbg = 3bece38a33b9 "Merge a52q/integ (RKP memory reservation, OIS, CPU idle
+  states) into the debug build" (diff vs integ = a52q_defconfig only), pushed fast-forward to GitHub
+  obs/a52q-mainline-dbg (0225194..3bece38).
+- OBS (osc on the laptop, meta re-saved): home:realni/linux-sm7125-mainline scmsync #98d661c501c9...,
+  linux-sm7125-mainline-dbg scmsync #3bece38a33b9...; both went to "blocked" (scmsync in progress) right after.
+- Agents started, sharing the phone through a token directory on dev (/tmp/claude-1000/a52-phone-token: mkdir
+  = take, rm -rf = release): GNSS (typelib into the dev sysext), compass (SSC registry ssc_hw_rev plan from
+  10-03), OIS factory gain calibration (module EEPROM nvmem cells; branch a52q/oiscal, DTB-only if the EEPROM
+  driver is built), and a read-only study of gyroscope/proximity.
+
+## 2026-10-12 14:50 — GNSS works (typelibs into the dev sysext)
+- Root cause 1: `ValueError: Namespace Qmi not available` = Qmi-1.0.typelib AND Qrtr-1.0.typelib missing (image
+  0.26.0925.2 predates the recipe's gir1.2-qmi-1.0/gir1.2-qrtr-1.0 lines). Phone libs are byte-identical to Debian
+  libqmi-glib5 1.38.0-1+b1 / libqrtr-glib0 1.4.0-1+b1 (sha256 match), so the typelibs were taken from
+  gir1.2-qmi-1.0_1.38.0-1+b1 (8d59ee0b...) and gir1.2-qrtr-1.0_1.4.0-1+b1 (bd8b8b2b...) into
+  /var/lib/extensions/a52qdev/usr/lib/aarch64-linux-gnu/girepository-1.0/.
+- Root cause 2: `systemd-sysext refresh` (systemd 261) said "Skipping extension refresh because no change was
+  found" and the files stayed invisible; needs `systemd-sysext refresh --always-refresh=yes`.
+- Side effect of the crash loop: a52q-gnss.socket itself went `failed` (start-limit-hit); `systemctl reset-failed`
+  + `systemctl start a52q-gnss.socket` (a reboot does the same).
+- Result: loc-follow.py unmodified. First engine start after boot: first NMEA after 59 s, later starts 0.3-0.6 s.
+  Steady 1 Hz GGA/GSA/RMC/VTG + 4 GSV/s, GP talker only. Indoors, no SIM: 13-16 SVs listed, 2-4 with SNR 13-27;
+  RMC status A with a position (wanders by hundreds of metres), GGA quality 0 / GSA mode 1 = no real fix.
+  Idle stop 120 s after the last client, `Deactivated successfully`, socket keeps listening.
+- geoclue 2.8.2: pid of the socket peer = geoclue; a client gets 1 Hz locations from the RMC position labelled
+  acc=5m (too optimistic indoors). Needs Location enabled in Settings (`org.gnome.system.location enabled` is
+  false on the phone -> "Geolocation disabled for UID 60466"); it was switched on only for the test and restored.
+- After the next image update (recipe already installs both gir packages) delete the two typelibs from the
+  sysext, or they will shadow the image's copies.
+
+## 2026-10-12 15:10 — OIS factory gain calibration committed; gyro/proximity verdict
+- OIS calibration (agent, DTB-only): main-camera EEPROM `eeprom@50` (atmel,24c64 on i2c9, vcc l3, at24 = m in
+  the running kernel) gets a fixed nvmem layout with `xygg@180` (8 bytes) and `cal-mark@1a0` (1 byte), referenced
+  from ois@62 (`nvmem-cells`, names cal-mark, xygg). On the phone (UKI a52qtest_0.26.1012.6, blessed): cells
+  read bb / 8a74f93e1d250e3f (= cameras/main/eeprom-0x50-dump.bin), OIS XGG/YGG 0x0254 goes from the default
+  f628dc3eae47e13e to 8a74f93e1d250e3f, err 0, servo running, main 5/5 + front + UW capture.
+  Own rebuild: dtbs_check/W=1 output = the two known warnings only. Codex: no defect in the DTS; style nit
+  acted on (nvmem-* before the vendor property; the rebuilt DTB differs from the tested one only in phandle
+  numbering); driver follow-up NOT done: samsung-ois-mcu.c:362-367 turns -EPROBE_DEFER of the cells into
+  "absent" (fine with the default fw_devlink ordering, wrong with fw_devlink=off/permissive).
+  Commit 116f7f7169cd (a52q/oiscal) merged: a52q/integ = 07bcabdb72bd, pushed to GitHub obs/a52q-integ;
+  a52q/dbg = 0a2a8e753f65 pushed to obs/a52q-mainline-dbg; OBS packages re-pinned to these two commits.
+  Odd but unrelated: forcing the OIS on through sysfs power/control gives one clk_branch_toggle warning and
+  leaves it active until the next real capture.
+- Gyroscope / proximity (read-only study): gyro = the LSM6DSO that also is the accelerometer; listed in the SSC
+  registry (atoll_qrd_lsm6dso_0.json .gyro), but iio-sensor-proxy has no gyro interface and nothing on the
+  phone asks for one: a feature, not a defect (ssccli is not installed, so no sample was read). Proximity: no
+  physical sensor; the SSC registry has the STK31610 as light sensor only, sns_bring_to_ear has
+  proximity_enable = 0; Samsung markets "virtual proximity". The SX9360 at 0x28 on an i2c-gpio bus (tlmm 51/52,
+  irq pm6150l gpio5) is a capacitive grip/SAR sensor with a mainline driver, no substitute for ear detection.
+  (The study named a Zinitix touchscreen; wrong, this phone has the STM FTS5CU56A. Samsung's virtual proximity
+  is usually the touch controller's ear-detect mode: unverified, would be driver work in stmfts.)
+
+## 2026-10-12 15:25 — compass works: ssc_core/ssc_hw_rev = 6 (the 10-03 plan run on the phone)
+- Fix (on the phone, in /var, survives image updates): /var/lib/droid-juicer/sensors/sensors/ssc_core/
+  ssc_hw_rev = "6\n", ssc_mode = "0\n", fastrpc:fastrpc 0644, dir 0755. Result: rotv SUID
+  11591090518199008144/16650227176490521676, HasCompass true, heading 106.4-106.5 live (phone not moved).
+- Why 6 and not the 10-03 candidate 0: the factory registry on persist (sda5, mounted ro,noload, 129 files,
+  written by Android) has ak0991x_0_platform.mag.fac_cal.corr_mat = 0.9633 0.0096 0.0189 / 0.0142 1.0060
+  -0.0054 / -0.0045 -0.0088 1.0536 = atoll_qrd_ak991x_6.json (revisions 6-31). The "0," typo in _0 is moot.
+- Mechanism corrected: with the file missing the SEE polls it 10x, then asks hexagonrpcd's sns_registry m0
+  for group 'revision' once per revision-gated config (3x) and gets the SoC revision '1.1' from the real
+  /sys/devices/soc0/revision: no match. With the file: one open, no m0 call.
+- The SEE parses the registry ONCE per ADSP boot: restarting hexagonrpcd re-reads nothing (0 file ops), so
+  the value only takes effect after a reboot. The registry dir stays in-memory only (sns_reg_version +
+  temp.json on disk); the factory registry on persist is not what the phone uses today.
+- No ADSP trouble: 5 boots with the fix, 0 adsp/remoteproc/fatal/crash/qrtr lines; the suspend hook's
+  stop/start of hexagonrpcd + iio-sensor-proxy keeps compass, accel and light.
+- Pre-existing, NOT from this fix (A/B with one boot without the files, iio-sensor-proxy in debug): the
+  iio-sensor-proxy instance started at boot never delivers light readings (ClaimLight arrives 4 ms before
+  the SSC light device is found, no "Measurement received" ever); accel and compass are fine; restarting
+  iio-sensor-proxy (as the suspend hook does) cures it until the next boot. Open.
+- Recipes (uncommitted): bengalos-a52q-ssc.conf creates the dir + two files (f = only when missing; the same
+  lines give byte-identical files on the phone); docs/devices/a52q.md one sentence. sensors/root here: 0 -> 6.
+- Backup kept on the phone: /root/ssc-registry-backup-1012/registry.tar (+ .sha256, files.sha256). Rollback:
+  rm -r .../sensors/ssc_core and reboot. The temporary boot guard/dead-man used for the test is removed.
+
+## 2026-10-12 16:10 — light sensor dead after boot: root cause = iio-sensor-proxy startup claim race (upstream #437), worked around
+- Mechanism (trace + debug log, boot without restart): the name appears at 44.712; gsd-power (not Phosh) does
+  g_dbus_proxy_new_sync + ClaimLight on name-appeared; the daemon is still inside name_acquired_handler() ->
+  find_sensors(), whose SSC drivers call libssc *_new_sync() = g_main_context_iteration(default) (libssc
+  0.4.4 libssc-common.c:52-60), so the claim is dispatched re-entrantly at 45.103, 7 ms before "Found device ...
+  ambient light" (45.110). handle_generic_method_call() (iio-sensor-proxy.c 3.9 :491-555) records the sender and
+  returns OK because the type does not exist yet; name_acquired_handler() (:752-795) never replays it (only
+  the hotplug path :1102-1115 does). The table is then never "size == 1" again, so later claimers (monitor-sensor
+  at 124.30) do not start the sensor either: 0 "Light level sent" lines, LightLevel 0. Cured by a restart only
+  because the screen was off then (gsd-power does not claim while idle).
+- Fix = WORKAROUND in the recipes (uncommitted) and the phone's a52qdev sysext: ssc-hotplug.sh + a "change" udev
+  rule + two Exec lines in the iio-sensor-proxy drop-in. Start on the compass only, then two udev "add" events
+  hotplug light and accel, which replays earlier claims. No compass -> /run/a52q-ssc-no-compass + old startup.
+- Verified 5 boots (4 with debug + D-Bus trace, 1 clean): light enabled at boot+43 s by gsd-power's claim,
+  ~160 readings in the first 25 s, accel + compass fine, sleep hook stop/start cycle fine (run by hand).
+- Facts worth keeping: 3.9 sends PropertiesChanged only to claimants; a client that does GetAll when the name
+  appears is answered mid-discovery with Has*=false and is never told otherwise (Phosh gets
+  HasAccelerometer=false at boot this way; not addressed). Any uevent on fastrpc-adsp starts
+  iio-sensor-proxy when it is inactive (SYSTEMD_WANTS). polkit denies claims from an ssh `runuser -u miro`.
+- 16:45 follow-ups: (1) auto-rotate: with and without the workaround Phosh gets HasAccelerometer=false in the
+  GetAll reply at name-appeared and never claims the accelerometer (also orientation-lock is true for miro);
+  the workaround changes nothing there. (2) ssc-hotplug.sh hardened after review: waits bounded by time
+  (15 s compass, 5 s each light/accel, every busctl cut at 2 s), sensors verified after the add events, every
+  failure -> flag /run/a52q-ssc-old-startup (renamed) + one restart with the old startup. Simulated no-compass,
+  compass-never-true and failing add events: one restart each, unit active, 3 sensors. Unit start 5.4-7.2 s at
+  boot (old startup 4.5 s), 3 boots OK.
+
+## 2026-10-12 16:41 — light-sensor workaround hardened and committed; builds done; clock note
+- Clock note: the section headings I wrote on 2026-10-11/12 from "14:00-15:30" up to "19:00 wrap-up" carry
+  ESTIMATED local times, several of them hours off (the session ran through the night). The authoritative
+  timestamps are the UTC ones in logs-1003/trials.log and in the log file names; headings from the agents
+  (14:50 GNSS, 15:25 compass, 16:10 light) and from here on are real CEST.
+- Light sensor: Codex review of ssc-hotplug.sh found three failure-path gaps (wait bounded by iterations
+  not time -> could hit the unit start timeout and leave NO sensors; giving up left light/accel hidden;
+  hotplug result unchecked). Fixed by the agent: time-bounded waits (15 s compass, 5 s each for light and
+  accelerometer, every busctl call cut at 2 s; worst case ~53 s < 90 s start timeout), every failure sets
+  /run/a52q-ssc-old-startup and restarts the unit once with the old startup. Re-verified: 3 boots normal path
+  (light flowing, Light/Accel/Compass true, unit start 5.4-7.2 s vs ~4.5 s before), and simulated no-compass,
+  HasCompass-stuck and add-events-fail paths each end with one restart and three sensors.
+  Recipes repo (local branch a52q, not pushed): 44793fa earpiece, 1759b06 compass, 46174e9 light workaround.
+- Auto-rotate (not fixed, upstream): iio-sensor-proxy 3.9 answers GetAll with HasAccelerometer=false while
+  it is still probing and sends PropertiesChanged only to claimants, so Phosh 0.57 (rotation-manager.c:236,
+  :299-308, :685) never claims the accelerometer after boot; same with and without the workaround. Also
+  `orientation-lock` is true for miro. Needs the upstream fix (issue 437) or a patched iio-sensor-proxy.
+- OBS: home:realni linux-sm7125-mainline (#07bcabdb72bd) and linux-sm7125-mainline-dbg (#0a2a8e753f65) both
+  succeeded and are published (checked through api.opensuse.org/public; the laptop was asleep).
+- sensors/root/sensors/ssc_core/ssc_hw_rev in this repo: 0 -> 6 (the value that works).
