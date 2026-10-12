@@ -1,0 +1,11 @@
+[Unit]
+Description=Stream power-transition trace events to dev (freeze debugging)
+After=network-online.target
+
+[Service]
+ExecStart=/bin/sh /etc/a52-ftrace-stream.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

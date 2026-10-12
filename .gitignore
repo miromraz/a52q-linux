@@ -18,3 +18,8 @@ mainline-stage/
 nfc-vendor-blobs/
 *.dtb
 *.deb
+bench/
+wifisrv/
+jit/jitstress
+jit/jitstress2
+jit/seccompstress

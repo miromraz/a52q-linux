@@ -1,0 +1,9 @@
+[Unit]
+Description=Cap CPU/GPU clocks on low battery (freeze mitigation)
+
+[Service]
+ExecStart=/bin/sh /etc/a52-lowbat-cap.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

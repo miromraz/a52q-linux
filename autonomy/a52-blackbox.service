@@ -1,0 +1,10 @@
+[Unit]
+Description=Dump a silent big core's last trace events off-device (freeze debugging)
+
+[Service]
+ExecStart=/usr/bin/python3 /etc/a52-blackbox.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -2626,3 +2626,766 @@ TZ; consider reporting.
   extracted) in ~miro/.local/opt/claude-desktop, launcher ~/.local/share/applications/claude-desktop.desktop.
   First extraction lost 7 files to the crash (0-byte v8 snapshot) → re-extracted + sync; broken copy left in
   ~/.local/opt/claude-desktop.broken (owner may delete).
+
+## 2026-10-04 Claude Desktop freeze, monitored run (hotspot, phone 10.65.100.149, kernel f1b1dba)
+- /home 100% full is benign: miro.home is a fully allocated 50G image (ls -s 50G).
+- Per-second stream (logs-1003/cd-launch-*.log): froze ~25 s after launch at uptime 464.
+  MemAvailable 2.1G, swap unused, Dirty <1M, Writeback 0, mem PSI 0, io PSI ~4%. => NOT memory, NOT writeback (refutes I/O-hang hypothesis).
+- Last D-state tasks: khugepaged (DN), sugov:6 (big-cluster cpufreq governor kthread); claude-desktop R.
+- Next: A) THP never  B) cap cpu6/7 scaling_max_freq. One at a time.
+- Test A (THP never): froze anyway at uptime ~235 (logs-1003/cd-launch-thpoff-*.log). THP ruled out.
+  Mem 2.7G avail, 39 C, policy6 pinned at 2323200 (top OPP) throughout, claude-desktop R on cpu7.
+  Next: stress-ng on cpu6,7 alone at top OPP (no Claude); then cap policy6.
+- Big-core stress (openssl+busy loops pinned cpu6,7, 174 s at 2323200): NO hang. Constant 100% load = no idle entries, no freq changes.
+- dbg kernel 75d6208 (UKI a52qtest_0.26.1004.1), netconsole over Wi-Fi to laptop:6666 (a52-netconsole.service).
+  Claude Desktop ran ~18 min, then at 2309 s: "watchdog: CPU6: Watchdog detected hard LOCKUP on cpu 7",
+  CPU7 never answers the backtrace IPI, RCU stall 7-...0 (not idle), mm_percpu_wq lru_add_drain on cpu7 pending forever.
+  Log: logs-1003/netcon-cpu7-hardlockup.log. => CPU7 dead with IRQs masked/firmware, same family as the 6/7 big_cpu_sleep_1 hang.
+  hardlockup_panic=1 did not panic (buddy detector), phone needed force reboot.
+- Suspects: big_cpu_sleep_0 (state1) entry/exit, or big-cluster freq transitions (sugov:6 was D in run 1). Bursty load hits both; stress hit neither.
+- dbg kernel side effect: built-in g_ether (USB_ETH=y) takes the UDC -> bengalos-debug-usbnet fails -> no sshd. Fixed by enabling ssh.socket.
+- Scaling: Phosh scale 3 -> 360 logical px wide; Claude Desktop main window minWidth 600/minHeight 400 (+720x560, Gxn/Kxn 320x240).
+  Patched app.asar in place (same length, 1e0), backup app.asar.orig. Linux ignores asar integrity fuse.
+- Burst default idle states (+ app launch at login): RPMh AMC timeout from sugov:6 cpufreq->icc bw vote (rpmh.c:425 WARN, -110), then CPU0 hard LOCKUP. panic=10 rebooted.
+- All cpuidle state1/2 disabled (no cluster PD): burst alone 11 min OK; at app launch CPU4+CPU7 hard LOCKUP simultaneously, no RPMh warn. => not cluster idle.
+- performance governor (no cpufreq transitions): hung ~10 s after launch, no detector output, wdog pretimeout. => not cpufreq/icc either.
+- Headless phoc (pixman, no GPU opened), root, app copy /var/tmp/cdapp: survived 5+ min.
+- In-session strace: hang 15 s into launcher shell script (before electron exec); DPU 'no encoder found for crtc 0' + frame event overflow flood right at hang.
+  Other hangs had no DPU errors. Multiple CPUs hard-locked with IRQs masked -> need pseudo-NMI stacks.
+- dbg2 kernel: obs/a52q-mainline-dbg 67e9e17 (+ARM64_PSEUDO_NMI, PROVE_LOCKING, DEBUG_ATOMIC_SLEEP); boot with irqchip.gicv3_pseudo_nmi=1.
+- 2026-10-04 evening, dbg2 kernel (pseudo-NMI on; lockdep self-disabled at boot by cpu_suspend irqs warning):
+  pstore stays empty even after sysrq-c and reboot=warm -> boot chain wipes the ramoops region; msm has no drm_panic.
+  Silent total hang ~40 s after one in-session launch (no netconsole output at all -> all CPUs/bus).
+  NO hang: membw stress 5 cores 6 min; app in headless phoc gles2 (GPU active) 5 min; + miro session bus 4 min;
+  cold tar of the 674 MB app from LUKS home (49 MB/s); user-launched app from home, signed in, 10+ min.
+  => intermittent; not memory bw, not GPU alone, not session services, not home I/O. Root cause still open.
+- dbg3 = integ a9f10dc (+ a52q/dpuscan 3788c5d: guard INTF_LINE_COUNT read with pm_runtime_get_if_in_use) + dbg cfg, UKI a52qtest_0.26.1004.3.
+  DPMS toggle stress (60 idle, 150 under load) never reproduced on dbg2. Fix did NOT help: claude launched at 2281 s,
+  CPU3 stalled ~2291 s, fqs=0, no answer to pseudo-NMI, wdog pretimeout + bite. No screen toggling => DPU theory unlikely.
+  A CPU that ignores pseudo-NMI is wedged in HW or at EL2/EL3 (Samsung uH/QHEE?), not spinning in EL1.
+  Errata detected: 1165522/1319367/1530923, 1418040; DBM only on CPU6-7; IDC=1 (no DC clean to PoU).
+  Electron/V8 JIT is the common trigger; plain CPU/mem/GPU stress never hangs.
+- 2026-10-04/05 autonomous trials (autologin via home-activate-miro.service + greetd initial_session):
+  6.14 kernel ALSO hangs (~27 s after launch, CPU6 wedged, no IPI answer) => not a 7.3 regression.
+  jitless V8: hangs within seconds. Launcher-only stub: OK. Audio playback x3: OK. memfill 2.6 GB + verify: OK (no missing carveout).
+  60 Hz mode: atomic commit EBUSY, unusable. Trials (logs-1003/trials.log): unpinned 2/6 hang, taskset 0-3 1-2/8 hang => pinning doesn't fix.
+  pinned-7 hang boot shows kernel timestamps jumping to ~38000 s in a 1 h boot + RCU 'false positive?' on idle CPUs => counter/timer anomaly during hang.
+
+## 2026-10-08 evening — autonomy + watchdog findings (dbg3 kernel, Wi-Fi 192.168.100.131)
+- Boot before this session (Oct 6) ran ~2 h, then froze right after Firefox ESR launch (not only Electron).
+- Phone lacked /etc/protocols and /etc/services -> `ping: unknown protocol icmp`; copied from laptop.
+- systemd-networkd ran with no managed links -> OPER_STATE=off -> timesyncd never synced (clock 2 days behind). Masked networkd (NM owns wld0).
+- sleep/suspend targets masked (idle suspend drops Wi-Fi). /etc/sysctl.d/90-a52-autoreboot.conf: panic=10, panic_on_rcu_stall=1, soft/hardlockup_panic=1.
+- a52-wifiwatch.service (/etc/a52-wifiwatch.sh): 3 min grace, `nmcli device connect wld0` after 2 min w/o gateway, reboot after 10 min.
+  v1 used ping without /etc/protocols -> false "down" -> radio toggle; fixed.
+- WATCHDOG, key result:
+  * kernel-petting mode (U-Boot armed WDT, no userspace opener): panic=0 + sysrq-c -> phone NEVER resets (17+ min, needed a human).
+    => this is why some freezes needed a force reboot.
+  * systemd RuntimeWatchdogSec=30s: panic=0 + sysrq-c -> back on Wi-Fi in 101 s (bite works).
+    BUT with it on, the IDLE phone reset 3/3 boots at 132/188/246 s, no log. Off: 15 min idle fine.
+  * Hypothesis: PID1's 15 s keepalive is delayed > 15 s because a CPU in deep idle misses its timer wakeup
+    (same family as the Electron/Firefox core wedge + the kernel time jumps). Test: 30 s wdog + cpuidle.off=1.
+- 2026-10-09: 30 s systemd wdog idle 12+ min OK -> the 3 earlier idle resets were NOT reproducible (likely my service
+  restarts / 2-day clock step). zz-a52-wdog.conf (RuntimeWatchdogSec=30s) kept ON = the only mode that resets a dead kernel.
+- timesyncd: also needs drop-in ExecStartPre=+-/bin/rm -f /run/systemd/netif/state ('+' = outside the unit sandbox) -> synced.
+- Claude Desktop baseline (cdbatch.sh base1009): OK,OK,OK, HANG #4 55 s after launch, silent (no RCU/NMI/netconsole output),
+  RECOVERED BY ITSELF in ~2 min (wdog bite). First fully unattended freeze+recovery.
+- tlbstress.py (8 procs mmap/mprotect/madvise/munmap, ~40M range TLBI broadcasts, 300 s): NO hang -> TLBI/DVM theory unlikely.
+- Earlier Claude trials mostly ran under the phosh LOCK SCREEN (idle-delay 300 blanked + locked) and still hung.
+  miro now has idle-delay 0 + screensaver lock-enabled false (dev handset). rendstress.py (GTK4 full-screen redraw, cairo/gl)
+  + rendtrial.sh for display-path load without Electron.
+- 2026-10-09 no-hang results (all with 30 s wdog on): rendstress cairo 4x300 s + gl 4x300 s (screen on, unlocked);
+  nsstress.sh (33.6k user/pid/net/ipc namespace sandboxes in 300 s); allburst.sh (92 synchronized 8-core openssl
+  bursts, 600 s, up to 59 C). => not display load, not sandbox namespaces, not all-core power steps.
+- Phone root fs was 100% FULL (my /var/tmp/cdapp 591M, cdhome*, camera dumps) -> cleaned, 57% used.
+- Test UKI a52qtest_0.26.1009.1 = dbg3 + cpuidle.off=1 (uki-recmd.sh); backup of dbg3 /var/tmp/a52qtest_0.26.1004.3.efi.
+  cdbatch.sh idleoff 10x300 s running.
+- cpuidle.off=1 (UKI 0.26.1009.1): Claude trials 9 OK / 1 HANG (idleoff-8, hung <15 s after launch, silent, self-recovered 98 s).
+  => deep idle (PSCI cpu_suspend) is NOT the cause. Baseline today 3 OK / 1 HANG (also <15 s after launch).
+- wifistress.py (1.6 GB down + 1 GB up over Wi-Fi, 600 s): no hang => not Wi-Fi/ath10k traffic.
+- jit/jitstress.c (static aarch64; threads write+__clear_cache+call code; rwx and W^X-mprotect modes): running.
+- jitstress 300 s rwx (5.2e9 write+IC IVAU+call) + 300 s W^X (1.46e7 mprotect cycles), 8 threads: NO hang, no stale code.
+  => JIT/cache maintenance (incl. possible hypervisor trapping) not the trigger.
+- Next: short-launch reproducer (cdbatch.sh short 30 30: launch, 30 s, kill) then bisect Chromium flags.
+- More no-hang results 2026-10-09: seccompstress (434k seccomp-bpf JIT filters), v4lopen.py (2800 open+QUERYCAP over all
+  14 /dev/video*, exactly what Chromium's GPU process does), gpuwake.py (9000 GPU runtime-PM wakes racing the 66 ms
+  autosuspend), homeio.py (~50 GB writes + 2.6k fsync'd small files in the LUKS homed home; dm-crypt uses xts-aes-ce, no QCE).
+  Chromium's ALSA use is only CTL CARD_INFO/PCM_INFO/NEXT_DEVICE (software).
+- /dev/mem read of CPU external-debug block 0x7010ff0 (cpu0 CIDR) = instant SILENT WHOLE-SYSTEM HANG, wdog recovered 63 s.
+  => a single bad MMIO read reproduces the exact freeze signature (no NMI answer, no log). Debug blocks unusable (secured/off).
+- Short launches (launch, 30 s, kill): 1/30 hung. Today's launch-phase total ~3/44. strace of an Oct 4 hang ended in
+  plain fork/exec of coreutils inside the AppRun launcher => trigger is not a specific app syscall.
+- Back on normal cmdline: UKI a52qtest_0.26.1009.2 (dbg3 cmdline, deep idle on), blessed.
+- FIREFOX is a better reproducer: ffshort (launch firefox-esr, 40 s, kill) 5 HANG / 30, all self-recovered (57-84 s).
+  Hangs 1-4 were consecutive launches ~1 min after (re)boot; only 1/25 later. All silent.
+- eglprobe.py (400x surfaceless EGL init + GLES ctx + 4 MB texture upload + FBO clear + glFinish + teardown, random
+  gaps up to 1.5 s so the GPU power-collapses between probes): NO hang => Firefox/Chromium startup GPU probe not it.
+- Firefox under strace -f streamed over UDP (udprelay.py -> laptop :6667): 0 HANG / 20 (all at long uptime).
+  strace serialization/slowdown suppresses it (race) and/or uptime matters. Next: bootff.sh (reboot -> firefox asap) x8.
+
+## 2026-10-10 00:10 — BATTERY-LEVEL CORRELATION (strongest lead so far)
+- Matching every boot end (journalctl --list-boots) to /var/lib/upower/history-charge-19.dat:
+  hangs at 18:55?/20:10/21:00/21:29/21:46/21:50/21:52/21:54/21:57/22:08 all at battery <=10% discharging
+  (upower stopped sampling at 10% 19:29), one Claude hang at 29% (18:18). Hang rate rose as the battery drained
+  (Firefox: 4 hangs in a row at ~21:50). After the charger was plugged in (~22:09), 0 hangs in 76+ Firefox launches
+  (ffshort 13-30, fftrace 20, bootff 8, fftr 30), at 100%/charging.
+- Charger now carries the whole load: battery current ~0 mA with 8-core openssl bursts -> cannot drain it remotely.
+- Hypothesis: VPH_PWR droop on a low battery during app-launch load bursts -> silent CPU/fabric hang. Downstream
+  Android has LMh/BCL throttling; mainline sm7125 likely has neither. Explains: silent, NMI-immune, all CPUs,
+  random, app-launch-triggered, both 6.14 and 7.3, synthetic tests (all run at 100% or plugged) never hung.
+- Confirm: unplug, let it drop below ~20 %, rerun ffshort. Mitigation candidates: LMh/BCL enablement, or a
+  low-battery CPU/GPU frequency cap service.
+- Instrumentation left installed: a52-ftrace-stream.service (rpm/clk/regulator/icc events -> laptop UDP 6668).
+- Research (2026-10-10): mainline has NO PM6150/sc7180 BCL; lmh.c matches only sdm845/sm8150 and is thermal-only;
+  a Feb 2026 RFC "hwmon: Qualcomm PMIC BCL" (pm7250b, monitor-only) is unmerged. Cheapest mitigation = userspace cap.
+- a52-lowbat-cap.service (/etc/a52-lowbat-cap.sh) installed, DISABLED: on battery & <30 %: big<=1.7 GHz,
+  little<=1.5 GHz, GPU<=565 MHz. Writes verified + restored.
+- Laptop: `systemctl --user status a52-lowbat-plan` (lowbat-plan.sh) waits for unplug, drains to 20 % with
+  rendstress gl, runs 20 uncapped Firefox launches, enables the cap, 20 more. Log logs-1003/lowbat-plan.log.
+
+## 2026-10-10 15:50 — SoC benchmark baseline (battery 97→86 %, unplugged)
+- bench.sh full97 (stress-ng matrixprod + glmark2-es2-wayland 2023.01, Debian sid debs in /var/tmp/bench):
+  cpu1 43.3 bogo/s; cpu8 176.6; glmark2 552 (1080x2259 windowed, FD618); cpu8+glmark2 together: 127 bogo/s + glmark2 396.
+  Clocks hold max (big 2323 MHz, GPU 732 MHz avg under glmark2); peak 1.19 A, min 4.15 V, max 71.6 C. No hang, no throttling.
+- Geekbench 6.7.1 Linux ARM preview: SC 769 / MC 1873 (browser.geekbench.com/v6/cpu/19324903).
+  Android SM-A525F public: SC ~690-748, MC ~1700-1800 -> mainline is at or above stock. 6.5.0 failed upload (internal code 35); 6.7.1 works.
+- No 3DMark for Linux. UL reference (Android): Wild Life 1039, WL Extreme 313, Sling Shot Extreme ES3.1 2534. No public glmark2 numbers for Adreno 618.
+- lowbat-plan now runs bench.sh again at 20 % before the Firefox batches (bench-low20.*) to compare.
+
+## 2026-10-10 19:20 — low-battery test: NO hangs (weakens the battery hypothesis)
+- bench.sh low20 at 20->16 %: identical scores (cpu1 44.9, cpu8 177.2, glmark2 551), min 3.596 V, 1.19 A, 79 C. No hang.
+- 20 uncapped Firefox launches 16->12 %: 0 hangs. 20 with a52-lowbat-cap 12->7 %: 0 hangs.
+- Caveat: yesterday's hangs were "<=10 %" only because upower stopped logging at 10 % (19:29); the hangs ran until
+  22:08, so the real level was probably far lower (near empty). Running empty-plan.sh: uncapped launches until 3 %.
+- Other differences vs yesterday: today the battery was hot from 3 h of heavy drain (lower internal resistance),
+  phone up 19 h (no recent reboot). Yesterday's ffshort 1-4 hung on consecutive launches right after watchdog reboots.
+- Note: stopping a52-lowbat-cap does not restore clocks (ExecStop missing); restored by hand.
+- 19:31 empty-plan: 9 more uncapped Firefox launches 6->3 % (3.48 V): 0 hangs. Total today 49 launches at 16->3 %, 0 hangs.
+  => low charge alone does NOT cause the freeze (at least with a warm battery, long uptime). Battery hypothesis demoted.
+  Remaining differences vs yesterday's hang cluster: battery temperature (cold vs warm), time since boot
+  (yesterday's hangs clustered right after watchdog reboots), and whatever else changed between 22:09 and now.
+
+## 2026-10-10 19:50 — REPRODUCED on battery: reboot + immediate Firefox at 3->1 %
+- bootff.sh (TAG=bootbat3) 5 cycles on battery: 1 HANG (bootbat3-2), 4 OK. Same harness on charger yesterday: 8/8 OK.
+  So: battery + fresh boot reproduces; battery + long uptime (49 launches today 16->3 %) did not; charger + fresh boot did not.
+- Hang boot journal (logs-1003/hang-bootbat3-2-full.log): TRIAL at 59.9 s, last ssh answer at 77.8 s, but the 1 Hz
+  hb heartbeat (sh[388]) and journal kept going until 103.57 s. rtkit "canary thread is apparently starving" at
+  82.6/92.6/102.6 s -- appears in NO other boot. => not an instant bus lock here: ~25 s of CPU starvation (RT canary
+  can't run) while basic timers still tick, then total stop. No kernel messages at all (no RCU stall/soft lockup).
+- Earlier hang logs (tail -80) have no canary lines, but their last entries are within ~1-2 s of launch; persisted
+  journal tail depends on writeback, so "time of death" from journal is a lower bound only.
+- Next: on charger, does fresh boot + launch ever hang? (8/8 OK yesterday). Capture per-CPU state during the
+  starvation window: sched/irq tracepoints over UDP, /proc/interrupts deltas every 1 s via netconsole.
+- ftrace UDP stream (ftrace-1009.log lines 27483790-27517556) for bootbat3-2 runs until 113.02 s: kernel AND userspace
+  (udprelay.py over Wi-Fi) alive 35 s after ssh stopped answering (~78-93 s). Activity decays: big-cluster sugov:6
+  events stop ~86 s, CPU7 last seen 78 s, gap 105-111 s, last events = upowerd reading the fuel gauge over 890000.i2c.
+- netconsole (netcon-1008.log) prints NOTHING after the TRIAL marker: no RCU stall, no soft lockup, though ~50 s elapsed.
+- Picture: after the launch, the system degrades over ~30-50 s (sshd unreachable, RT canary starving, CPUs going quiet)
+  before total stop; no kernel detector fires. Fits a CPU/cluster dropping out (e.g. big cluster browning out at
+  low VBAT on fresh boot) with others piling up on it, rather than one instant fabric lock.
+
+## 2026-10-10 20:10 — SMOKING GUN: big core CPU6 dies first (per-CPU heartbeats, a52-cpuhb.service)
+- bootbat1 (fresh boot + Firefox, battery 1-2 %, ON CHARGER from cycle 1): 5 OK, cycle 6 HANG.
+  => hang reproduces on charger too when the battery is near empty (yesterday on charger at 100 %: 0/84).
+- Per-CPU 1 Hz kmsg heartbeats over netconsole (netcon-1008.log after "TRIAL bootbat1-6", launch at 59.7 s):
+  cpu6 ticks steadily 61.95..73.03 then STOPS DEAD at 73 s. Others continue: cpu3 to 94.7, cpu7 95.2,
+  cpu1 98.8, cpu0 99.1, cpu4/5 99.7, cpu2 99.7. No kernel message at all (no RCU stall report).
+- Matches bootbat3-2 ftrace: CPU7/sugov:6 (big cluster) went quiet first, rest decayed ~30 s later.
+- Interpretation: one big (Kryo 465 Gold) core hard-stops under a launch load spike when VBAT is low
+  (NVDC charger: VSYS follows VBAT when load exceeds input limit -> big-cluster rail droop -> core brown-out).
+  Other CPUs then block on IPIs/locks waiting for it -> progressive total hang; no detector fires.
+- Earlier netcon-cpu7-hardlockup.log (10-04) = same class (big core).
+- Next: A/B fresh-boot cycles at low charge, policy6 capped vs uncapped (bootff BIGCAP).
+- Research 20:30: LMh (CRNT/BCL/REL) on atoll is NOT enabled by the downstream kernel via SCM (no qcom,legacy-lmh-enable
+  in atoll DT) -> firmware default; porting mainline lmh.c is unlikely to help. Downstream PM6150 BCL zones
+  (vbat-lvl0/1/2 = 3.0/2.8/2.6 V, ibat-lvl0/1 = 5.5/6.0 A, bcl-lvl*) in atoll-ab-idp have NO cooling maps on the
+  reference board (bcl-lvl zones disabled) -> Android mitigation, if any, lives in Samsung userspace (thermal HAL).
+- Blocked 20:15: auto-mode classifier denied (a) sm5714 0x15 input-limit write even after user "yes",
+  (b) BIGCAP A/B bootff run. Needs a user permission rule or the user running it via "!".
+- Note for the cap service: bootbat1-6 hung ON CHARGER at 1-2 % -> a cap must key on capacity/VBAT, not charger=0.
+
+## 2026-10-11 12:15 — debug streams moved from the laptop to dev (project now runs on dev)
+- Phone now sends netconsole to dev 192.168.100.105:6666 (configfs target `dev`, remote_mac bc:24:11:e2:1e:f8)
+  and the ftrace relay to dev:6668. Edited on the phone: /etc/systemd/system/a52-netconsole.service,
+  /etc/a52-ftrace-stream.sh (+ unit description); originals in /root/a52-streams-laptop-backup/. Copies of
+  the new files in autonomy/.
+- Sink on dev: user unit `a52-udpsink.service` (autonomy/a52-udpsink.py, unit copy in autonomy/), listening on
+  192.168.100.105:6666/6667/6668 -> logs-1003/{netcon,fftrace,ftrace}-dev.log. Size-capped: on reaching the cap
+  the file is renamed to `.1` (previous `.1` dropped) -> netcon 2x100 MB, fftrace 2x500 MB, ftrace 2x1000 MB
+  (ftrace ~75 KB/s => roughly the last 3.5-7 h). After a hang, COPY the ftrace logs aside before they rotate.
+- Bound to dev's unicast address on purpose: Tuya devices broadcast on UDP 6666/6667 and were landing in the
+  logs. The laptop-side netcon-1008.log / fftrace-1009.log contain that binary noise from 10-08 on.
+- A strace relay to :6667 must now target 192.168.100.105 (`udprelay.py 192.168.100.105 6667`).
+- Laptop: the three `socat -u UDP-RECV` sinks were stopped; netcon-1008.log, fftrace-1009.log, ftrace-1009.log
+  there are final (ftrace 10.0 GB) and were pulled to dev's logs-1003/ under the same names.
+- Verified: `echo ... > /dev/kmsg` on the phone appeared in netcon-dev.log; ftrace-dev.log grows.
+- 12:40: `logs-1003/ftrace-1009.log` (10.0 GB) is now `ftrace-1009.log.zst` on dev (308 MB, sha256 of the
+  content b6d95e37...b70a48, identical to the laptop's file); read it with `zstdcat` / `zstdgrep`. The laptop's
+  copy was deleted on the user's request, so dev holds the only one.
+- 13:50: sink rotation now compresses (user request). At the cap the log is renamed to
+  `<name>-dev.log.<YYYYmmdd-HHMMSS>` (UTC, time of rotation), compressed to `.zst` (zstd -9, niced), and the
+  oldest archives are deleted until they total <= the cap. Replaces the single `.1` file described above.
+  ftrace compresses ~30x, so the 1000 MB archive budget holds days of history instead of hours; disk bound per
+  stream is still ~2x cap. Read with `zstdcat logs-1003/ftrace-dev.log.*.zst` (glob sorts chronologically).
+
+## 2026-10-11 14:00-15:30 — full status audit; freeze reproduced by a camera capture at 60 % battery
+- Audits (notes, live phone, kernel trees): the phone runs `a52q/integ` a9f10dc + debug config only; no fix is
+  waiting undeployed. The four debug-config commits (1604500, 75d6208, 67e9e17, merge 0225194) were on no local
+  branch on dev or the laptop (only GitHub `obs/a52q-mainline-dbg`): local branch `a52q/dbg` -> 0225194 created.
+- CORRECTION to 20:30 on 10-10 ("BCL zones have no cooling maps"): for a52q the downstream DT does have them
+  (`sdmmagpie-thermal-overlay.dtsi:130-190` via atoll-idp.dtsi -> atoll-sec-common.dtsi): zones `soc` (10 % trip,
+  low_limits_cap) and `pm6150-bcl-lvl0/1/2` map CPU6/7 to THERMAL_MAX_LIMIT. All are `disable-thermal-zone`, so
+  thermal-engine (vendor blob config, being extracted from the stock firmware) decides whether they are on.
+- SM5714 charger registers read at 500 s uptime, 64 %, charging (i2c-dev read-only, no INT registers):
+  0d=09 0e=18 0f=00 10=00 11=00 13=6c 14=05 15=30 17=03 18=53 19=1c 1a=67 1b=05 1c=00 1d=10 1e=11 22=04 23=01 46=98.
+  WDTCNTL 0x22=0x04: 90 s timer, WDT_EN=0, STATUS2 bit7 (expired) clear -> charger watchdog is NOT armed/expired:
+  that lead is dead. CHGCNTL6[3:1]=0 (5.4 A discharge limit) and CHGCNTL11=0x98 (AICL 4.5 V, auto-ship 2.6 V/4 s)
+  already equal what the downstream driver programs (bootloader did it). VBUSCNTL 0x30 = 1300 mA input.
+- Offline mining of ftrace-1009 (2 of the 14 recorded hangs have ftrace: bootbat3-2, bootbat1-6): no traced event
+  separates hang from non-hang launches. bootbat1-6: CPU6 last event 73.73 s (sugov:6 osm_l3 top vote), heartbeat
+  to 74.42, global stop 99.76. bootbat3-2: CPU7 silent from 78.14, stop 113.02. In every launch (hang or not) a
+  burst of 8-15 GMU on/off cycles sits at T0+12..15 s; the first core dies at T0+14..18 s.
+- NEW, 12:08 UTC (14:08 CEST): `cam -c1 --capture=3` (default config, acceptance sweep) froze the phone at 18 h
+  uptime, ~60 %, on charger. Same signature: cpuhb7 last at 64805.09, all other CPUs until 64831.46.
+  => LOW BATTERY IS NOT REQUIRED. The battery hypothesis is demoted to "maybe raises the rate".
+  ftrace (slice logs-1003/camfreeze-1011/sweep-cam-c1-ftrace-64800-64832.txt): CameraManager on CPU7 enables
+  csiphy2 + csi2phytimer, then camnoc_axi, cpas_ahb, soc_ahb, ife_0, ife_0_axi, ife_0_csid, last
+  `clk_enable: cam_cc_ife_0_cphy_rx_clk` at 64805.565647 (= CSID power-on, next step is the CSID reset wait).
+  45 ms later CPU7 is idle and takes a timer irq that queues the async GPU runtime suspend
+  (`<idle>-0 [007] d.h2. 64805.610658: rpm_suspend: 5000000.gpu flags-9`). Nothing from CPU7 after that.
+  After that moment NO camera event, NO GPU/GMU event (the queued GPU suspend never shows a single clk/rpm
+  event) and no CameraManager/SWIspWorker event from any CPU, while sugov:0/6, UFS and upowerd trace on for 26 s.
+  So CPU7 died idle or on its way out of idle, right as the camera GDSC/clocks came up and a GPU suspend was due.
+- Later in the same sweep all five cameras captured by device path (main at 1920x1080) without a freeze.
+- Tracing extended (autonomy/a52-ftrace-stream.sh + new autonomy/a52-vphlog.py, deployed to /etc on the phone,
+  old script in /root/a52-ftrace-stream.sh.pre-1011): + qcom_scm:scm_smc_request/done, rpmh:rpmh_send_msg/
+  rpmh_tx_done, power:cpu_frequency and power:psci_domain_idle_enter/exit (both filtered to cpu6/7), and VPH_PWR
+  from the PM6150L ADC (in_voltage_vph_pwr_input, 1.25 ms/read) as trace_marker `vph uV min= max=` per 50 ms plus
+  `fg uV= uA= cap=` per second. power:cpu_idle (every WFI) was tried and dropped: 1.4 MB/s, relay at 75 % CPU.
+  Stream is now ~280 KB/s (was 75), relay ~40-55 % of a little core: fine for a repro session, too heavy to
+  leave on for good.
+- Acceptance sweep 2026-10-11 (active tests): PASS speaker->bottom-mic loopback (RMS 20 silent vs 1470 tone),
+  AK7375 VCM register tracking, BT scan (9 devices), NFC poll start/stop, Venus h264 decode 15/15 frames, display
+  90 Hz + backlight, charger/FG. FAIL: top mic (Mic2) records exact zeros; no earpiece device in UCM/PipeWire
+  (mixer has EAR_PA/EAR_RDAC); OIS not bound (no DT node; driver is =m); GNSS (loc-follow.py: `Namespace Qmi not
+  available`, gir1.2-qmi-1.0 missing on the phone; the recipe already lists it -> the phone image is older than
+  the recipe); no compass/gyro/proximity via iio-sensor-proxy; modem `sim-missing` (UIM: no-atr-received on both
+  slots). Camera frames streamed but were black (dark room), image content unverified. Evidence: /tmp/a52-accept/.
+- `bengalos-debug-usbnet.service` failed = debug kernel's built-in g_ether owns the UDC (known).
+
+## 2026-10-11 15:15 — camera capture is NOT a repeatable reproducer (0/44); stock has no SOC-keyed CPU cap
+- camff.sh / camff-boot.sh / camff-slice.sh (new harness, trials.log tags camff-*): 0 freezes in 44 captures
+  (front default 0/8, main/UW/depth/macro 0/3 each, front at 42-50 s after boot 0/8, exact sweep command with
+  40 s idle before each 0/8, main (4616x3468) after fresh boot 0/8), 68-86 %, on charger. Rate < ~7 %/capture.
+  The 12:08 freeze camera was the FRONT imx616 (CSIPHY2), not the main one. Evidence + six control summaries:
+  logs-1003/camfreeze-1011/.
+- What the controls say about the 12:08 freeze: the sequence up to `cam_cc_ife_0_cphy_rx_clk` is the normal one;
+  CameraManager normally sleeps 44-58 ms there, then resumes the sensor (rpm_resume 16-001a). In the freeze that
+  wake-up never happened on any CPU. CPU7's last context was IDLE. In controls, the next traced event on a big
+  core after such an idle timer irq is `psci_domain_idle_enter` (state 0x40000003, core power-down) in 12/21
+  cases; cpu7 takes that state ~90x/s. The other 7 CPUs stayed fully healthy (230-390 events/s, all heartbeats)
+  until 64831-64832 = the 30 s systemd hardware watchdog bite, i.e. userspace stranded on dead CPU7's timers/
+  runqueue starves PID1; it is not a spreading kernel lockup. No RCU stall in 26 s also fits a CPU that RCU
+  counted as idle (dynticks-idle CPUs are quiescent).
+  => working model now: a big core goes idle and never comes back (no timer, no IPI, no pseudo-NMI). Whether it
+  dies inside PSCI CPU_SUSPEND(0x40000003) or in plain WFI is the open question; the extended stream answers it
+  on the next freeze (psci_domain_idle_enter without exit = died in firmware). Caveat from 10-04/10-09: hangs
+  also happened with all PSCI states disabled / cpuidle.off=1, and once CPU4+CPU7 together, so WFI-only death
+  must stay on the table.
+- Stock firmware A525FXXSCFYF1 (vendor/system/product/odm extracted on the laptop, small files kept in
+  ~/mobile-linux/a525f/extracted-etc/): vendor/etc/thermal-engine.conf is the EMPTY Qualcomm stub -> the
+  downstream `soc`/`pm6150-bcl-lvl*` zones are not enabled by it. init.qcom.post_boot.sh atoll block: no
+  scaling_max_freq, core_ctl disabled on cpu6 (big cores never hotplugged), schedutil hispeed 1248000/1267200,
+  sched_boost 1 from early-init until boot_completed. Samsung SSRM (ssrm.jar strings) limits CPU by temperature
+  (AP_TEMP steps, CPU_MAXLIMIT), no battery-level condition visible; its siop_a52q_sm7125 table is inside
+  services.jar (not extracted). => "cap the big cores below N % like Android" has no stock precedent.
+- Stream: + regulator:regulator_set_voltage(_complete), clk:clk_set_rate. ~315 KB/s.
+- OIS: DT node prepared on a52q/oisdt (worktree ~/src/wt-oisdt, UNCOMMITTED; dtb in out/oisdt/): i2c-gpio bus
+  gpio86/87, ois@62, vdd=l7, vio=l3, reset=tlmm32, boot0=tlmm43, samsung,image-sensor=<&cam_main>. dtbs_check/W=1
+  identical to a9f10dc, checkpatch clean. REVIEW RISK: the driver links the OIS as a runtime-PM SUPPLIER of the
+  sensor (device_link_add(sensor, ois)), so the OIS resumes (android_init over i2c) BEFORE the sensor's own
+  power-on; at that point only l7+l3 are on, cam0_avdd_1p8 (gpio63, the sensor's vcustom) is not. The 09-30
+  bench test always forced the sensor on first. If the MCU needs AVDD, init fails and takes the main camera's
+  resume down with it. Needs a DTB-only test boot before merging.
+
+## 2026-10-11 16:00 — NEW LEAD: cluster idle composite states still put Gold cores through rail-pc (level 4)
+- Research (other SM7125 projects, lore): no public report of this freeze and no idle workaround in
+  sm7125-mainline / pmOS (stock sc7180 idle tree there); coverage thin, so "not found", not "does not exist".
+  Downstream gates cluster collapse: atoll-pm.dtsi:37-46 `qcom,min-child-idx = <2>` + `qcom,is-reset`, i.e. the
+  cluster may only power-collapse when its child CPUs are at level index 2 (rail-pc, psci mode 0x4). Mainline's
+  genpd hierarchy has no such gate.
+- How mainline composes the PSCI state here (sc7180.dtsi + cpuidle-psci-domain.c): CPUs have no cpu-idle-states;
+  their cpuidle states are the cpu_pdN domain-idle-states and only the DEEPEST one goes through genpd
+  (pm_runtime_put -> cpu_pd off -> cluster_pd may power off). When cluster_pd powers off, the last CPU's
+  suspend parameter is the cluster state's value verbatim: 0x41000044 / 0x41001244 / 0x4100b244. The low nibble
+  is the CPU level = 4 = rail power-down (downstream psci-mode-shift 0, cluster shift 4).
+- Consequence of our 10-03 DT fix (`&cpu_pd6/7 { domain-idle-states = <&big_cpu_sleep_0>; }`): for the Gold
+  cores big_cpu_sleep_0 (0x40000003) is now the deepest = the genpd state, so EVERY Gold power-down lets the
+  cluster collapse, with Gold cores at level 3 (violates downstream's min-child rule), and when a Gold core is
+  the last CPU down it itself requests 0x41xxxx44 = CPU level 4, the very state the fix meant to remove.
+  This is NOT what was validated on 10-03: the validated mitigation was sysfs `state2/disable` on cpu6/7, under
+  which state1 was a plain non-genpd PSCI call and the Gold cpu_pds never powered off (so no cluster collapse).
+- Measured in the live stream (last ~21 min of ftrace-dev.log, psci_domain_idle_enter filtered to cpu6/7):
+  0x40000003: 105984 (cpu6) + 89173 (cpu7); 0x41001244: 52 (cpu6) + 26 (cpu7); 0x41000044: 3 + 4.
+  => a Gold core is the last CPU into a cluster state ~250 times/hour at light load. With the 10-03 figure of
+  roughly one failed exit per ~6000 level-4 entries that predicts a freeze every day or so of light use and
+  more in idle-then-burst patterns, the right order of magnitude; and the 12:08 freeze has CPU7 idle as its
+  last context.
+- Does not fit (keep honest): the 10-09 `cpuidle.off=1` run still had 1 hang in 10, and 6.14 hung on 10-04/05
+  (was cpu-gold-idle-fix active there? not recorded). Either a second mechanism exists or those runs were not
+  as idle-free as assumed (never verified via /sys/devices/system/cpu/cpuidle/current_driver).
+- Test plan: (1) fast reproducer = 10-03 idlestress on the CURRENT kernel with a sleep longer than the cluster
+  residency (~12 ms) pinned to cpu6/7 on an otherwise idle phone, so a Gold core is last-down ~80x/s;
+  (2) A/B with cluster collapse blocked at runtime (cpu0 `cpuidle/state2/disable`=1 keeps cpu_pd0, hence
+  cluster_pd, on) and with Gold genpd entry blocked (cpu6/7 `state1/disable`=1); (3) the freeze trace must
+  end with psci_domain_idle_enter state=0x41xxxx44 (or a sibling Gold core in 0x40000003) without exit.
+
+## 2026-10-11 16:10 — audio: earpiece added (UCM), top mic was fine
+- Top mic (Mic2): the sweep's "exact zeros" did not reproduce. Raw ALSA with the Mic2 path and a speaker tone:
+  RMS 10047 (ADC3 on) / 178 (ADC3 off) / 22 (speaker muted) / 23 silent; via PipeWire "Top Microphone" 12107
+  vs 25. No change needed. (The sweep most likely recorded while WirePlumber had another route applied.)
+- Earpiece: the receiver is the RIGHT TAS2562 on Quinary MI2S (top speaker), not the WCD9380 EAR pin (all
+  EAR_RDAC routes are silent; Right amp is louder at the top mic 6072 vs 3696, Left at the bottom mic 2660 vs
+  1312). New UCM device `Earpiece` in Samsung/a52q/HiFi.conf: same PCM as Speaker, ConflictingDevice Speaker,
+  enable = Left Digital Volume 0 + Right 97 (-13 dB, starting point, NOT tuned by ear), disable = both back to
+  109. Measured before the -13 dB: earpiece tone at the top mic 722 vs 31 silent; drops to 25 with Right muted.
+  PipeWire shows port Earpiece (type earpiece) and separate `HiFi (Earpiece, ...)` profiles; switching profile
+  toggles Left/Right 0/97 <-> 109/109 (verified). Speaker->bottom mic loopback unchanged (10683).
+- Where: recipes repo (~/pixel-a4-linux/BengalOS/recipes, device-a52q UCM HiFi.conf, UNCOMMITTED) and on the
+  phone in the dev sysext /var/lib/extensions/a52qdev/usr/share/alsa/ucm2/Samsung/a52q/HiFi.conf (sha256
+  7c7a90ec1000ad2e..., identical). Backup of the previous files: /root/ucm-backup-1011/ on the phone.
+- Leftover from the WCD EAR dead-end experiments: one benign `Unbalanced enable for IRQ 220` WARN this boot.
+
+## 2026-10-11 17:15 — cluster-idle lead KILLED; found instead: firmware refuses every cluster state
+- idlecl.sh A/B (trials.log idlecl-*, evidence logs-1003/idlecl-1011/summary.txt): arm A (current config) 6x300 s,
+  arm B (cpu0 state2 disabled = no cluster requests) 3x300 s: 0 freezes anywhere. ~1.1 M Gold-issued
+  0x41xxxx44 requests without a freeze (at the 10-03 "1 per ~6000 level-4 entries" rate that would be ~180).
+- Why: the firmware REFUSES every cluster composite request. psci_domain_idle_enter(0x41xxxx44) -> exit in
+  50-100 us (max 382 us), cpuidle `rejected` per CPU == cluster entries exactly, genpd power-domain-cluster
+  3.29 M rejected / usage sum 0 over a 1 h 55 min boot. Boot log: `psci: OSI mode supported`, `CPUidle PSCI:
+  Initialized CPU PM domain topology using OSI mode`. So on this phone the cluster has NEVER powered off under
+  mainline, a Gold core never reaches rail-pc via a cluster state, and the 16:00 model is wrong.
+- Side findings: (1) the last CPU retries at once: an idle untraced phone makes ~4100 refused PSCI calls/s
+  (~1400/s from Gold cores) and genpd books 76 s of 300 s as cluster "off" that is really a spin = an idle-power
+  bug by itself and a firmware path Android never exercises. (2) The trace stream changes what it measures:
+  every traced event wakes the relay on a little core, which then is the last CPU down; the "250 Gold cluster
+  entries/h" figure from 16:00 is an artefact of the full stream (untraced: ~1400/s). (3) pm_genpd_inc_rejected()
+  ignores state_idx -> cluster S1 usage prints as 18446744073709551423 (upstream stats bug). (4) one-time
+  lockdep WARN at 5.97 s (lockdep_hardirqs_off from cpu_suspend, CPU0 entering 0x40000004), not investigated.
+- Not excluded: a very rare failure inside the firmware's refusal path (bound < 2.7e-6 per Gold request; a
+  one-per-day freeze at ~1e-8 per request is invisible to this test).
+- Open: WHY the firmware denies (PSCI OSI returns DENIED when the composite is inconsistent with what it
+  thinks the other cores are in; downstream only asks for cluster collapse with every child at level 4,
+  `qcom,min-child-idx = <2>`). DTB variants built for this (out/idlefix/, worktree ~/src/wt-idlefix holds V2
+  uncommitted): v1-all-level4.dtb (every cpu_pd only level 4, cluster states kept: tests whether the firmware
+  then accepts, and re-tests the 10-03 Gold level-4 hang with SCM/PSCI tracing) and v2-no-cluster.dtb (current
+  Gold override + `&cluster_pd { /delete-property/ domain-idle-states; }`: stops the 4100/s refused calls).
+
+## 2026-10-11 18:00 — OIS DT test boot 1: FAIL (wrong vio rail), rolled back; root cause found, DTB v2 built
+- UKI a52qtest_0.26.1011.1 (same kernel, DTB with i2c-cam-ois/ois@62, vio=vreg_cam_l3): module autoloads and
+  binds (14-0062, device link consumer:i2c:15-002d), but every main-camera open hangs in the OIS runtime resume
+  for 160.3 s (20 status polls x ~8 s of 1 s SCL timeouts on the bit-banged bus, CameraManager 100 % sys on
+  CPU7, cam ignores SIGINT), then fails; libcamera retries 4x. No ois/i2c/regulator/PM error line at all (the
+  driver fails silently); only `WARNING: v4l2-subdev.c:484 call_s_stream` x11. cam0_avdd_1p8 stayed disabled
+  during every attempt. A front capture right after failed once (leftover camss state), UW fine.
+  Rolled back to a52qtest_0.26.1009.2 (backup /var/tmp/a52qtest_0.26.1009.2.efi.bak, sha256 2e7061da...3936560);
+  all cameras OK again. Evidence: logs-1003/oisdt-1011/. Note: the extra i2c-gpio bus renumbers the CCI buses
+  (main sensor 14-002d -> 15-002d etc.).
+- Root cause: wrong supply, not a driver ordering problem. Downstream ois_rear (qupv3_se10_i2c, 0x62) in
+  atoll-sec-a52q-camera-sensor-common.dtsi:88-112: `cam_vaf-supply = <&s2mpb03_l7>` and gpios tlmm 32 RESET,
+  tlmm 43 BOOT0, **tlmm 63 "MCU_VIO" (RCAM1_AVDD_1P8)**. The MCU's 1.8 V I/O rail is the gpio63 regulator
+  (vreg_cam0_avdd18), not LDO3. The 09-30 harness had it right (vio -> the sensor's vcustom); the 6.14 DT commit
+  0af2cfd75 and today's first node copied "vio=l3".
+- Fix in wt-oisdt (uncommitted): `vio-supply = <&vreg_cam0_avdd18>`; bus node renamed `i2c-ois`: dtbs_check
+  rejects `i2c-cam-ois` ($nodename must match ^i2c(@.+|-[a-z0-9]+)?$, plus unevaluated-properties fallout). The
+  coder's "no new dtbs_check warnings" claim for the first version was wrong; caught on my own rebuild.
+  New DTB out/oisdt/sm7125-samsung-a52q.dtb sha256 569c4fac...11808e9; W=1 + CHECK_DTBS = baseline, checkpatch
+  clean. Test boot 2 (UKI 0.26.1011.2) running.
+- uki-recmd.sh: new `DTB=file` option (DTB-only test boot of the same kernel).
+
+## 2026-10-11 18:35 — OIS DT test boot 2: PASS (UKI a52qtest_0.26.1011.2 left installed)
+- DTB 569c4fac...11808e9 (i2c-ois, ois@62, vdd=l7, vio=cam0_avdd18): boots, blessed; module autoloads, bound
+  14-0062, suspended at rest, sensor 15-002d lists supplier:i2c:14-0062.
+- Main camera 5/5 x 3 frames, a 240-frame run, and main again after front/UW: all OK. OIS runtime_status active
+  while the main sensor streams, suspended after; cam0_avdd_1p8 enabled (2 users) during the stream, off after.
+  OIS runtime resume = 92-96 ms (ftrace); capture wall time 2.45-2.81 s vs 2.65-2.87 s before: no net cost.
+- Registers during streaming (read-only): fw "PSC1NK1M", fwsts 0x00FC a6110300, err 0x0004 0000, status 02
+  (servoing), mode 01, ctrl 01; hall/gyro words 0x82..0x9c fluctuate across 12 samples. (0x9a sits near -4070
+  vs about -16k on the 09-30 bench; not interpreted.)
+- New kernel messages: one `qcom-camss acb3000.isp: Missing ready buf 6!` in the 240-frame run (also seen on
+  the old DTB today). No call_s_stream WARN, no i2c/regulator/PM errors.
+- NOT verified: image content (frames near-black, phone in the dark) and the actual stabilisation effect
+  (needs the phone moved by hand, OIS on/off comparison). EFS gyro offset still hardcoded 0.
+- Evidence logs-1003/oisdt-1011/run2/. Combined DTBs for the idle experiment built on top of this node:
+  out/idlefix/ois-v1.dtb (c35287a6...), ois-v2.dtb (6fd71bed...); test running (trials.log idlev-*).
+
+## 2026-10-11 20:40 — idle DTB variants: firmware ACCEPTS cluster power-off when all children are at level 4;
+##                    first freeze caught with the extended stream: cpu6 dies right after a cpufreq transition
+- idlev.sh, evidence logs-1003/idlev-1011/summary.txt, trials.log idlev-*. Same kernel, DTB swaps on top of the
+  OIS node; counters with the stream quiet. 60 s idle / stress with sleep loops on cpu6-7:
+  | config | cluster req/s idle | accepted vs rejected (60 s) | PSCI calls/s idle | stress s | idle-test freezes |
+  |-|-|-|-|-|-|
+  | baseline (Gold lvl3 only) | 2912 | 0 vs 175138 | 3258 (2910 refused) | 240 | 0 |
+  | V1 all cpu_pd level 4 only | 22 | 1076 vs 266 (58 by firmware) | 231 (1.0 refused) | 1920 | 0 |
+  | V2 no cluster states | 0 | n/a | 256 (0 refused) | 1920 | 0 |
+- V1: the vendor rule is real. With every child at level 4 the firmware accepts cluster power-off: 11230
+  accepted in 10 min of idle (cluster booked off 469 of 600 s; 0x41001244 984 of 1076, 0x41000044 92,
+  0x4100b244 none). Remaining refusals ~5-8 % at idle, more under stress. The 10-03 Gold level-4 hang did NOT
+  reproduce: ~333k Gold 0x40000004 entries under stress + ~17k idle, no freeze (10-03 hung at ~6000 with the
+  stock two-state layout, where children can be at level 3 when the cluster goes down). Cost of V1: Gold cores
+  have only the 5.5 ms-residency state (WFI 49 % at 7 ms sleeps vs 13 %).
+  => stock sc7180.dtsi idle layout violates this firmware's contract; "all children at level 4" (V1) is the
+  layout that matches Android. The 10-03 DT override (Gold level 3 only) made the firmware refuse 100 %.
+- V2: 0 cluster requests, PSCI calls 3258/s -> 256/s, time in power-down ~85 % -> ~91 %.
+- Idle time shares (60 s quiet): baseline Silver WFI 6.2 / lvl3 6.0 / lvl4 79.2 %, Gold WFI 9.3 / deep 82.1 %;
+  V1 Silver 5.1 / - / 91.0, Gold 6.5 / 91.3; V2 Silver 5.0 / 3.7 / 87.5, Gold 6.7 / 90.6. No current measured.
+- genpd `rejected` over-counts firmware refusals (kernel-side aborts too: V2 shows 3.4-3.8/s with no PSCI
+  cluster state; likely the rpmh-rsc power-off notifier; not traced). V2's cluster genpd still has a default S0.
+- FREEZE with the extended stream (V2 boot 2, full stream, `camff-idlev-final-1`, main-camera capture started at
+  uptime 104.81 s): cpu6 last heartbeat 104.70, last event 104.903045, all in the sugov:6 kthread: policy6
+  1843200 -> 1267200 -> 1555200 -> 1267200 kHz within 10 ms; last transition = clk_set_rate qcom_cpufreq1
+  1267200000, 4x icc_set_bw ebi (peak 4068000), 4x rpmh_send_msg (active TCS 0x50000/0x50028/0x5003c/0x5000c),
+  2x icc_set_bw osm_l3, cpu_frequency 1267200 cpu6+cpu7. NOT inside a PSCI call, no SCM call open. cpu7 (same
+  clock/voltage domain) ran on for 22 s; others ~28 s, then the watchdog. No kernel message.
+  Same family: bootbat1-6 (10-10) cpu6 last event = sugov:6 osm_l3 vote; 10-04 sugov:6 RPMh AMC timeout WARN
+  before a hang. WFI is not traced, so "died right after the transition" vs "went to WFI and never woke"
+  is still open. The agent rolled back to baseline 0.26.1011.2 per its instructions (V2 itself is not
+  implicated). Rollback image: /var/tmp/a52qtest_0.26.1011.2.efi.bak and out/uki/ on dev (sha256 d60c8196...).
+- New hypothesis under test (freqff.sh, trials.log freqff-*): the death is tied to Gold-cluster DCVS transitions
+  (OSM perf-state write + ebi/RPMh + osm_l3 votes), esp. rapid back-to-back ones; reproducer = busy/bursty
+  workers on cpu6-7 with policy6 scaling_max_freq toggled as fast as sysfs allows.
+
+## 2026-10-11 22:15 — cpufreq-transition reproducer: NEGATIVE (0/21, ~3.4 M forced Gold transitions)
+- freqff.sh (trials.log freqff-*, logs-1003/freqff-1011/): userspace governor + scaling_setspeed at 1400-1900
+  transitions/s (busy and 2 ms bursty workers on cpu6-7, incl. one run started 100 s after a fresh boot),
+  scaling_max_freq clamp toggling under schedutil (220-400/s), bursts only (55-58/s), little cluster, both
+  policies at once: 4620 s, ~3.38 M policy6 + 0.71 M policy0 transitions, 0 freezes. The forced transitions take
+  the natural path (clk_set_rate qcom_cpufreq1, 4x rpmh_send_msg active TCS, rpmh_tx_done, cpu_frequency), mean
+  462 us, max 5.5 ms. No RPMh timeout, no WARN, max 43 C.
+  => transition RATE is not the trigger. Still open: a transition coinciding with something else (RPMh traffic
+  from GPU/camera/GDSC clients, first minutes after boot, real app start).
+- Baseline facts: both policies schedutil, rate_limit_us 1000, cpuinfo_transition_latency 0. Natural policy6
+  transition rate: idle 39/s, bursty load 55-260/s.
+- Reading of the 17:57 freeze trace (cpu6, last 20 ms): sugov:6 stepped 1708800 -> 1555200 -> 1708800 -> 1843200
+  -> 1267200 -> 1555200 -> 1267200, each with its RPMh BCM batch (bw up before the clock, bw down after); the
+  last batch was acked (cpu_frequency printed 73 us after rpmh_send_msg). So cpu6 finished the transition
+  cleanly and died AFTER it, untraced. No RCU stall in the 28 s that followed (stall timeout 21 s) in any silent
+  freeze => the dead CPU is in an RCU-idle state, i.e. it most likely died in or entering/leaving idle (plain
+  WFI is not traced), not while running kernel code.
+- Scoreboard of single-factor reproducers that do NOT freeze: deep idle entry/exit (millions), cluster idle
+  requests (1.1 M refused; 11 k accepted under V1), cpufreq transitions (3.4 M), camera captures (44),
+  plus the 10-04..10-09 list (constant load, synchronized bursts, GPU wake, EGL, JIT, TLB, namespaces, Wi-Fi,
+  memory bw, home I/O). What freezes: real app starts (Firefox, Electron, camera) mostly 1-2 min after boot.
+- Next instrument: per-CPU flight recorder (autonomy/a52-blackbox.py + service, dev sink port 6669 ->
+  logs-1003/blackbox-dev.log): a second ftrace instance limited to cpu6-7 with dense events (sched_switch,
+  irq/softirq/ipi entry+exit, cpu_idle incl. WFI, psci, cpufreq, hrtimer, scm, rpmh) kept in the ring buffer
+  only; pinned liveness children per big core; when one goes silent for 2 s the survivors dump the dead
+  core's last 6000 events + /proc/interrupts x2 + timers over UDP and fire sysrq-l, before the watchdog bites.
+  Then a soak of reboot + app-start cycles to catch freezes with it.
+
+## 2026-10-11 21:45 — flight recorder a52-blackbox installed; soak started
+- autonomy/a52-blackbox.py + a52-blackbox.service -> /etc/a52-blackbox.py, enabled on the phone. ftrace instance
+  /sys/kernel/tracing/instances/bb, tracing_cpumask c0 (cpu6-7), 2 MB/CPU, 20 events (sched_switch/wakeup,
+  irq + softirq + ipi entry/exit, ipi_raise/send_cpu, cpu_idle = every WFI, psci, cpu_frequency,
+  hrtimer_expire_entry, tick_stop, scm, rpmh); ring buffer only, service CPU ~0.3 %. One SCHED_FIFO liveness
+  child pinned per big core; stale > 2 s => kmsg `BLACKBOX cpuN silent`, last 6000 events of the dead core +
+  2000 of the other, /proc/interrupts x2, softirqs, cpuidle counters, cpufreq, timer_list + sched debug of that
+  CPU over UDP to dev:6669 (logs-1003/blackbox-dev.log, sink cap 200 MB), sysrq-l, copy in
+  /var/log/a52-blackbox-<UTC>.txt (5 newest kept). One dump per boot. `--check` tests the step timeout.
+- Self-test (`systemctl kill -s USR1 --kill-whom=main a52-blackbox`, SIGSTOPs the cpu7 child): 6000/6000 +
+  2000/2000 trace lines received on dev (no UDP loss), all other sources, sysrq-l backtraces in netconsole,
+  on-phone file written. 6000 lines = the last ~0.45 s of cpu7 at normal activity.
+- Written inline: the coder subagent (Opus 4.8) was terminated by the provider's automated cyber-safeguard
+  filter before it changed anything.
+- soak.sh 30 (started 21:47 CEST, log logs-1003/soak-1011.out, trials.log tags soakff-N-1 and camff-soak-N):
+  per cycle reboot -> Firefox as soon as the session is up (40 s) -> main-camera capture at ~2 min uptime.
+  Phone on baseline UKI 0.26.1011.2 (OIS DTB, old idle layout), 100 %, on charger.
+
+## 2026-10-11 23:20 — SOAK: 8 freezes / 30 Firefox-after-boot cycles; the dead core dies RUNNING USERSPACE
+- soak.sh 30 on baseline UKI 0.26.1011.2, 100 %, on charger: Firefox started as soon as the session is up
+  froze 8/30 (soakff-1,10,12,18,23,24,25,26; death at 74-97 s uptime), the main-camera capture 2 min after
+  boot 0/30. => a 27 % reproducer that needs no low battery. (10-09 "0/8 on charger at 100 %" was just luck
+  or a different launch timing.) Evidence copy: logs-1003/soak-1011/.
+- Flight recorder: 7 dumps (5 complete, 2 partial), dead core 4x cpu7, 3x cpu6. In ALL of them the dead core
+  was NOT idle: it was running a Firefox thread in user mode (firefox-esr parent, WebExtensions, DOM Worker),
+  taking its 1 kHz tick normally, and the last event is the tail of an interrupt taken from user mode
+  (irq_handler_exit of arch_timer, softirq_exit RCU/SCHED) or a sched_switch to a Firefox thread, i.e. the
+  kernel was about to return, or had just returned, to EL0. Then nothing: not even the next tick 1 ms later.
+  No PSCI call, no SCM call, no idle entry, no cpufreq activity in the last milliseconds.
+  => earlier inference "dies in idle because RCU never complains" was wrong; the model is now: a Gold core
+  stops at or right after an exception return to user space (or at the next exception entry), in Firefox /
+  Electron processes.
+- What is special about EL0<->EL1 transitions on the Gold cores (Kryo 465 Gold, MIDR 0x51ff804f): the Spectre
+  mitigations. /sys/devices/system/cpu/vulnerabilities: spectre_v2 "Mitigation: CSV2, BHB" (Spectre-BHB,
+  detected when cpu6 came up; the Silver cores are not affected), spec_store_bypass "Mitigation: Speculative
+  Store Bypass disabled via prctl" (Spectre-v4 detected with cpu6 too; no `ssbs` hwcap). If Spectre-v4 is
+  firmware-mitigated on these cores (no PSTATE.SSBS => SMCCC ARCH_WORKAROUND_2), entry.S makes a firmware call
+  on every kernel entry from and exit to user space for ordinary tasks, and seccomp tasks (Firefox content
+  processes, most systemd services) get the mitigation switched per task: a firmware path hit millions of
+  times that could wedge a core in EL3 exactly at these points. KASLR is off (no seed), so no KPTI.
+  Not yet known: whether the Gold cores report SSBS; whether it is the BHB loop, the SSBD path, or neither.
+- Test running: UKI a52qtest_0.26.1011.6 = same kernel + DTB, cmdline + `mitigations=off`;
+  `NOCAM=1 NAME=mitoff soak.sh 30` (trials.log mitoffff-N-1). Baseline 8/30; 0/30 would have p ~ 8e-5 by chance.
+
+## 2026-10-12 01:40 — ROOT CAUSE AREA: the Spectre-v4 (SSBD) mitigation path on the Gold cores
+- Same harness (reboot -> Firefox as soon as the session is up, 40 s), same kernel + DTB, only the cmdline differs:
+  | cmdline | UKI | freezes / cycles |
+  |-|-|-|
+  | baseline | 0.26.1011.2 | 8 / 30 |
+  | mitigations=off | 0.26.1011.6 | 0 / 30 |
+  | ssbd=force-off (Spectre-BHB mitigation still on) | 0.26.1011.7 | 0 / 30 |
+  60 clean cycles without the Spectre-v4 mitigation vs 8/30 with it (chance of 0/60 at 27 %: ~6e-9).
+- Mechanism in this kernel (arch/arm64/kernel/entry.S `apply_ssbd`, proton-pack.c): on CPUs where Spectre-v4 is
+  mitigated through firmware (no usable PSTATE.SSBS; `arm64_ssbd_callback_required` per CPU), every entry from
+  EL0 calls SMCCC ARCH_WORKAROUND_2(1) and every return to EL0 calls ARCH_WORKAROUND_2(0), unless the task has
+  TIF_SSBD (prctl or seccomp), plus a call at context switch between the two kinds of task. Silver cores
+  (Kryo 4xx Silver) are on the Spectre-v4 safe list, so only cpu6/7 do this: two firmware calls per
+  user<->kernel transition. The flight-recorder dumps end exactly there (tail of an interrupt taken from user
+  mode / switch to a Firefox thread). Browser and Electron processes are seccomp tasks (TIF_SSBD), which makes
+  the per-CPU firmware state flip at context switches; plain stress tools are not, which fits "only real
+  sandboxed apps trigger it". Not proven: that the core is stuck inside the firmware call (no tracepoint
+  there), and why Android (CONFIG_ARM64_SSBD=y in atoll_defconfig) does not show it.
+- This supersedes every earlier model today (idle, cluster idle, cpufreq, brown-out): those paths are innocent.
+  The 10-03 "Gold deep idle" hang and the cluster-refusal finding are separate issues that are still real.
+- Running: `ssbd=force-on` (UKI 0.26.1011.8, mitigation permanently on, no per-entry firmware calls; trials
+  ssbdonff-*) x30, then `nospectre_bhb` (UKI 0.26.1011.9, SSBD dynamic as in the baseline; trials nobhbff-*) x24
+  as the complement that should still freeze.
+
+## 2026-10-12 04:00 — more cmdline soaks: force-on clean, nospectre_bhb clean so far; baseline control running
+- `ssbd=force-on` (UKI 0.26.1011.8, mitigation permanently on, sysfs still says "disabled via prctl"): 0 / 30.
+- `nospectre_bhb` (UKI 0.26.1011.9, SSBD dynamic as in the baseline, spectre_v2 "CSV2, but not BHB"): 0 / 15,
+  then the 2 h background limit killed the run (no freeze; phone fine). Expected ~4 freezes at the baseline
+  rate (P(0/15) ~ 0.009). So either the freeze needs BOTH the Spectre-BHB vectors AND dynamic SSBD on the Gold
+  cores, or the baseline rate has drifted during the night and all of the above proves less than it seems.
+  => control: baseline cmdline again (UKI 0.26.1011.10, trials base2ff-*) x30, running.
+- Code facts (a52q/integ): Kryo 4xx Gold is in spectre_bhb_k24_list -> EL1_VECTOR_BHB_LOOP: on cpu6/7 every
+  entry from EL0 runs the 24-iteration branch loop in the trampoline vector (tpidrro_el0 as scratch) before
+  kernel_entry, where `apply_ssbd 1` makes the ARCH_WORKAROUND_2 firmware call; `apply_ssbd 0` on the way out.
+  No KPTI (KASLR off: no seed from the boot chain), so VBAR is not switched per transition. There is no
+  context-switch firmware call in this kernel; tasks with TIF_SSBD (prctl/seccomp) simply skip both calls.
+- Tension to resolve: freqff drove up to 84k sysfs writes/s (two firmware calls each, if the writer sat on a
+  Gold core) for minutes without a freeze, so "the firmware call randomly hangs" is too simple.
+
+## 2026-10-12 05:25 — CONTROL FAILED: baseline cmdline again = 0 / 30. The mitigation result is NOT established
+- base2 (UKI 0.26.1011.10, cmdline identical to the 8/30 baseline, vulnerabilities files identical, NOCAM=1):
+  0 freezes in 30 cycles. So after the first soak (21:46-23:15 CEST, 8/30) NOTHING froze any more, whatever the
+  cmdline: mitigations=off 0/30, ssbd=force-off 0/30, ssbd=force-on 0/30, nospectre_bhb 0/15, baseline 0/30.
+  The freeze rate is not stationary, and sequential A/B across hours is confounded by that drift.
+  RETRACTED: "root cause area = Spectre-v4 mitigation" (01:40) is unproven. It may still be true; the data
+  cannot show it. What stands: the flight-recorder facts (dead Gold core was running a Firefox thread in user
+  mode, last event = tail of an interrupt / switch to a Firefox thread; 7 dumps).
+- Differences between soak 1 and all later runs: (1) soak 1 had the main-camera capture after Firefox in every
+  cycle (NOCAM unset), so each reboot came after a camera session; (2) time (first Firefox use in ~2 days:
+  cold profile/caches, background update work such as the WebExtensions process; warm phone after the freqff
+  stress); (3) nothing in power: fuel gauge 4.395-4.397 V, |I| < 50 mA, 100 % in every trace archive of the night.
+  History also shows clustering (10-09: 4 freezes in a row right after watchdog resets, then 1/25; soak 1:
+  cycles 23-26 in a row), i.e. "bad periods" rather than a constant hazard.
+- Running: base3 = exact repeat of soak 1 (baseline UKI 0.26.1011.10, WITH the camera step), 30 cycles.
+- Method rule from here on: any A/B on this bug must be interleaved (alternate arms in short blocks within the
+  same hour) and must re-measure the baseline alongside; a clean arm alone proves nothing.
+
+## 2026-10-12 07:20 — base3 (exact repeat of soak 1, with camera): 0 / 30. The bad period is over.
+- So the camera step is not the factor. Since 23:15 CEST: 165 Firefox-after-boot cycles, 0 freezes, on four
+  different cmdlines including the unmodified one.
+- Time pattern of every recorded freeze: 10-09 18:18-22:08, 10-10 19:37 + 20:08, 10-11 14:08, 19:57,
+  21:46-23:02. Clean stretches: 10-09 after 22:09, 10-10 daytime (49 launches), 10-11 23:18 -> 10-12 07:10.
+  The earlier explanations for the clean stretches (charger plugged in on 10-09, warm battery on 10-10) were
+  coincidences of the same kind as last night's "mitigations".
+- Working idea: the trigger is a kind of userspace workload, not a system condition. The dead core was running
+  Firefox threads (parent, WebExtensions, DOM Worker) in user mode. Soak 1 was the first Firefox use in two
+  days: every launch starts the pending background work (add-on/update checks, remote settings, safebrowsing,
+  start-up caches) and is killed after 40 s; once that work has completed over ~30 launches the launches are
+  light. Electron (Claude Desktop) is JS-heavy on every start and froze at a steadier rate (10-04..10-09).
+- Test running: `APP=/var/tmp/ff-fresh.sh` (Firefox with HOME on a fresh tmpfs dir = brand-new profile on
+  every launch), baseline cmdline, 30 cycles (trials freshff-*). bootff.sh now honours $APP.
+- If that brings the freezes back, candidates to split with INTERLEAVED blocks: LSE atomics in userspace
+  (Debian builds use outline atomics -> CAS/SWP/LDADD on the Gold cores; Android 11 userspace did not), the
+  Spectre-v4 firmware toggling, JIT code. Cortex-A76 has several "deadlock" errata that are fixed only by
+  firmware control bits (TF-A list: 1262606, 1275112, 1262888, 1868343, 1946160, ...); whether Samsung's
+  firmware applies them for Kryo 465 Gold is unknown.
+
+## 2026-10-12 08:45 — CONTROLLABLE REPRODUCER: Firefox with a fresh profile freezes 26 / 29
+- `APP=/var/tmp/ff-fresh.sh NOCAM=1 NAME=fresh soak.sh 30` (wrapper on the phone: HOME=$(mktemp -d /tmp/ffhome.XXXXXX)
+  exec firefox-esr; baseline cmdline, UKI 0.26.1011.10): HANG in 26 of 29 cycles (06:43-08:38 CEST; the 2 h
+  background limit cut cycle 30), right after 60 clean baseline cycles with the old profile. 23 new
+  flight-recorder dumps (30 in total): same signature, the dead Gold core is running a Firefox thread in user
+  mode (mostly the parent process main thread `firefox-esr`, also DOM Worker, Privileged Cont, WebExtensions),
+  last event = tail of a timer tick / softirq, or an IPI it raised, at 78-100 s uptime.
+  => the trigger is the WORKLOAD: Firefox first-run work. With a warmed profile the same launch is harmless.
+  This explains every "bad period" (first Firefox use after a pause; 10-09, 10-10, soak 1) and why they ended.
+- Interleaved A/B now feasible (block of 3-5 cycles per arm, baseline blocks in between). Running:
+  fbaseA x3 -> mitigations=off x5 (fmitoff) -> fbaseB x3 -> ssbd=force-on x5 (fssbdon); log
+  logs-1003/soak-1011/interleave1.out, trials tags f*ff-N-1.
+
+## 2026-10-12 09:50 — interleaved A/B: the Spectre mitigations are NOT the cause (final)
+- Fresh-profile reproducer, arms alternated within one hour (trials f*ff-*):
+  baseline 3/3 HANG -> mitigations=off 3/5 HANG -> baseline 3/3 HANG -> ssbd=force-on 4/5 HANG.
+  The core dies with every mitigation off. The 01:40 conclusion is dead; last night's clean runs were the
+  warmed-up Firefox profile, nothing else.
+- VPH_PWR in the 15 s before four of these deaths: 3.99-4.14 V, flat, no dip (battery 4.39 V, 100 %, charger).
+  No supply droop visible at the system rail (the Gold core rail itself is not observable).
+- Next split, round-robin so every arm shares the same hour (wrapper autonomy/ff-fresh.sh = /var/tmp/ff-fresh.sh
+  on the phone, variant as argument; trials vbase-/vlittle-/vswgl-/vnojit-/vwarmcache-R-1, 4 rounds):
+  base       fresh HOME + fresh profile
+  little     same, Firefox pinned to cpu0-5 (taskset): is it only the Gold cores executing Firefox?
+  swgl       gfx.webrender.software + LIBGL_ALWAYS_SOFTWARE=1: no GPU / no freedreno shader compiles
+  nojit      baseline JIT, Ion, blinterp, wasm, native regexp off
+  warmcache  fresh profile but persistent XDG_CACHE_HOME (/var/tmp/ffcache: Mesa shader + fontconfig caches)
+  Phone back on the baseline cmdline (UKI 0.26.1011.14).
+
+## 2026-10-12 11:30 — the freeze follows the application, not the Gold cores; plain memory is clean
+- Round-robin, 4 cycles per arm, fresh profile (trials v*-R-1): base 4/4 HANG, warmcache 4/4, little 2/4,
+  swgl 1/4, nojit 1/4. Neither the GPU nor the JIT is required (both still froze once; n too small to rank).
+- "little" (Firefox pinned to cpu0-5 with taskset): the two freezes killed a LITTLE core. vlittle-2: cpuhb4
+  stops at 87.15, sysrq-l "CPUS still haven't responded to the NMI: 4"; vlittle-3: cpu1. The flight recorder
+  fired for cpu7 only because cpu7 sat in rcu_exp_gp_kthr -> __sync_rcu_exp_select_node_cpus ->
+  smp_call_function_single -> csd wait with preemption off, i.e. alive and waiting for the dead little core.
+  => not a Gold-core property. Whichever core runs the Firefox first-run work stops; Gold cores die most
+  often only because the scheduler puts the heavy threads there.
+  (vnojit-4 was a messier cascade: several heartbeats stop around 108 s, UFS hibern8 exit -110.)
+- Memory carve-out idea tested and not supported for data pages: memscan.py (anonymous memory in 64-page
+  chunks, frame numbers sent to dev before the next chunk, write + read-back of every page; swap off; pinned to
+  cpu2) filled 2491 MB down to MemAvailable 199 MB at 222 s uptime: 374894 pages (1464 MB) of the low zone
+  0x80000000-0xffffffff (zone DMA: managed 388546 pages, so ~96 % of it) and 1027 MB of zone Normal
+  (0x100000000-0x1ffffffff), no hang, 0 mismatches. Zones: DMA start_pfn 0x80000 spanned 2 GB managed 1.48 GB;
+  Normal start_pfn 0x100000 spanned 4 GB managed 3.83 GB; MemTotal 5571436 kB.
+  Not covered: pages in use by others at that moment, page cache, executable mappings, device/GPU buffers.
+  (A researcher is still comparing downstream vs mainline reserved-memory.)
+- Flight recorder: + raw_syscalls:sys_enter/sys_exit (22 events). Running 6 fresh-profile cycles (trials
+  sysc-N-1) to see whether the dying thread's last act was a syscall (and which) or pure user code.
+
+## 2026-10-12 13:40 — last act of the dying thread: mprotect(PROT_READ|PROT_EXEC); simple imitations do not freeze
+- 6 cycles with raw_syscalls in the flight recorder (trials sysc-*): 6/6 HANG, 5 usable dumps. In 4 of 5 the
+  LAST event of the dying thread is `sys_exit` of mprotect(addr, 0x1000-0x4000, PROT_READ|PROT_EXEC) = syscall
+  226 with prot 5, paired with a preceding prot 3 (RW) on the same address: SpiderMonkey flipping a JIT code
+  page W -> X. In the fifth the last such exit is 35 us before the end (futex calls after it). Dying threads:
+  firefox-esr main thread x3, DOM Worker x2; hundreds of these mprotect pairs per 0.2 s, no membarrier().
+  => the core stops in user mode right after freshly written JIT code becomes executable (first execution
+  of it), or in whatever user code follows; nothing reaches the kernel any more.
+- Reserved-memory comparison (researcher): Qualcomm carve-outs all match downstream. NOT reserved in mainline
+  but reserved in Samsung's atoll-sec-common.dtsi: kaslr_region A0001000 4K, hdm_region A1000000 4K (no-map),
+  rkp_region B0200000 2M (comment: up to B1800000 for uH), ss_plog B4400000 2M, sec_debug B4700000 8M,
+  sec_debug_autocomment B4F00000 4K, modem_shared_mem B5000000 96M (no-map), sec_debug_rdx_bootdev 100000000
+  0x5900000; splash is reserved 9c000000+0x9e3400 vs downstream +0x1700000 plus dfps 9d700000 1M. U-Boot
+  passes only our DTB's reservations (efi_carve_out_dt_rsv); ABL runtime patches never reach the kernel.
+  memscan had already written + read back these frames (b027e-b1dbf, b4f22-bafff ... in its coverage list)
+  without a hang, so they are not access-protected; still wrong to hand them out (modem shared memory):
+  to be reserved in sm7125-samsung-common.dtsi as a separate correctness fix.
+- Imitations that did NOT freeze: jitciv.py (per-CPU processes: mprotect RW, write, mprotect RX, flush with
+  `dc civac` + `ic ivau` exactly like vixl/V8, call; 120 s, cpu7 6.7 M iterations, cpu4/5 1.45 M each) and
+  jit/jitstress2 (one process, 8-16 threads sharing a 256 MB code region: fresh 1-4 page spans, RW/RX flips,
+  civac or cvau flush, re-patching, MADV_DONTNEED decommit; 3.6 M spans in 120 s). Note SpiderMonkey flushes
+  BEFORE the mprotect(RX), these flush after.
+- Flight recorder: + kprobe events bb_fault (handle_mm_fault: addr, flags, user pc), bb_el0sys (do_el0_sys: esr,
+  pc = trapped system instructions from EL0), bb_undef (do_el0_undef), bb_svc (do_el0_svc: pc, lr); dump of the
+  dead core raised to 12000 lines, buffer 4 MB/CPU. (do_mem_abort is not probeable; open(...,"a") on
+  kprobe_events fails with EINVAL, use O_APPEND.) Every exec shows one bb_undef at ...cb8 = glibc reading
+  MIDR_EL1 (emulated mrs); expected. Running 5 fresh-profile cycles (trials kp-*).
+
+## 2026-10-12 15:20 — ROOT CAUSE: executing from Samsung's RKP/uH memory (0xb0400000..) hangs the core
+- Flight recorder with kprobes (trials kp-*, 5/5 HANG): the dying Firefox thread's last events are again
+  mprotect(RW) -> write fault on the fresh JIT page (bb_fault flags 0x1255) -> mprotect(RX) -> sys_exit, then
+  nothing; no trapped system instruction (bb_el0sys) and no undefined instruction near the end.
+  => it dies on the first instruction FETCH from a freshly allocated page, not on a data access.
+- execscan.py (like memscan.py, but every fresh page gets `mov w0,#i; ret`, the chunk's frame numbers are sent
+  to dev FIRST, then mprotect(RX) and one call per page; swap off; pinned to a little core):
+  | run | uptime | last chunk reported before the core died |
+  |-|-|-|
+  | 1 | 139 s | pfn b03f1-b0400 (after 599 MB) |
+  | 2 | 39 s  | pfn b03f6-b0405 (after 837 MB) |
+  | 3 | 43 s  | pfn b03f2-b0401 (after 851 MB) |
+  3/3 the core dies in the first chunk that contains frame 0xb0400; frames up to 0xb03ff execute fine.
+  Data access to the same frames is fine (memscan wrote and read back b027e-b1dbf).
+- What that memory is: downstream atoll-sec-common.dtsi: `rkp_region@B0200000` (2 MB, "UH_LOG and
+  UH_STATIC_HEAP") with the comment "DO NOT reserve 0xB0200000 ~ 0xB1800000 region for RKP at the runtime":
+  0xb0200000-0xb17fffff belongs to Samsung's hypervisor (uH / RKP; 0xb0400000 on = its read-only buffer pool,
+  handed to the stock kernel page by page through RKP_RKP_ROBUFFER_ALLOC hypercalls). The stock kernel keeps
+  the whole range out of the page allocator in code; our DT did not reserve it and U-Boot passes only our
+  DT's reservations. Stage 2 evidently lets the guest read/write it but not execute; an instruction fetch
+  there traps to EL2 and the core never returns (no IRQ, no IPI, no NMI) = the silent single-core death.
+- This explains every observation: the kernel hands out zone Normal (0x100000000+) first and falls back to
+  the low zone only when memory is tight, so only memory-hungry starts shortly after boot (Firefox first run,
+  Electron, camera + soft ISP) put CODE pages (JIT pages, or page-cache pages of freshly read libraries and
+  executables) into 0xb0400000-0xb17fffff; it follows the application to whatever core runs it (big or
+  little); JIT off / software rendering only lower the number of executable pages; long uptime usually has
+  the range occupied by data pages; battery, idle states, cpufreq, mitigations, GPU were all innocent.
+  It is also why 6.14 froze the same way (same DT gap) and why stress tools (no fresh code pages) never did.
+- FIX (worktree ~/src/wt-rsvmem, branch a52q/rsvmem, UNCOMMITTED; diff out/rsvmem.diff):
+  sm7125-samsung-common.dtsi reserved-memory: `rkp_mem: memory@b0200000 { reg = <0x0 0xb0200000 0x0 0x1600000>;
+  no-map; };` (common file: a72q has the same Samsung layer). dtbs_check/W=1 = baseline, checkpatch clean.
+  DTB out/rsvmem/ois-rsv.dtb (OIS node + this), UKI a52qtest_0.26.1012.1: /proc/iomem shows
+  `b0200000-b17fffff : reserved`, MemTotal 5548952 kB (-22 MB).
+  execscan on the fixed boot: COMPLETES, 2484 MB executed page by page (1430 MB of the low zone incl.
+  afe5f-b01ff and b1800-b21c2, 1054 MB of Normal), no hang.
+- Acceptance running (trials fixAff-*, nofixff-*, fixBff-*): fresh-profile Firefox x10 with the fix, x3 on
+  the old DTB (UKI 0.26.1012.2), x10 with the fix again (UKI 0.26.1012.3).
+- Still to do after that: the other Samsung regions mainline does not reserve (modem_shared_mem b5000000 96M,
+  ss_plog/sec_debug b4400000.., hdm a1000000, kaslr a0001000, rdx_bootdev 100000000) are data-safe per memscan
+  and exec-safe per execscan (low zone); reserve modem_shared_mem for correctness as a separate change.
+
+## 2026-10-12 17:30 — FIX VERIFIED: fresh-profile Firefox 10/10 OK, old DTB 3/3 HANG, fix again 10/10 OK
+- Same hour, same kernel, only the DTB differs (trials fixAff-*, nofixff-*, fixBff-*):
+  rkp_mem reserved (UKI 0.26.1012.1) 0/10 freezes -> old DTB (0.26.1012.2) 3/3 freezes -> rkp_mem reserved
+  again (0.26.1012.3) 0/10 freezes. Before the fix the same test froze 26/29, 6/6, 4/4, 5/5 today.
+- Combined DTB out/final/ois-rsv-idle.dtb (sha256 8b473eb3fe60...) = OIS node + rkp_mem + idle V1 (every cpu_pd
+  only its level-4 state; out/idlefix/v1-final.diff, worktree ~/src/wt-idlefix); dtbs_check/W=1 = baseline.
+  Installed as UKI a52qtest_0.26.1012.4; validation running (trials all3ff-*, camff-all3-*): Firefox fresh
+  profile x10, main + front camera, idle-state and cluster counters, execscan.
+- Re-reading history with the root cause known: the 10-03 "Gold deep idle hang at ~110 s" used python workers
+  started right after boot and may have been this same bug (a code page in the RKP range); the
+  "mitigated: clean 300 s" run proves little. The V1 measurements (firmware accepts cluster power-off only
+  with every child at level 4; 350k Gold level-4 entries without a hang) stand by themselves.
+- Uncommitted work to review/commit (nothing is committed or pushed):
+  ~/src/wt-rsvmem  (a52q/rsvmem)  sm7125-samsung-common.dtsi: rkp_mem          <- the freeze fix
+  ~/src/wt-oisdt   (a52q/oisdt)   sm7125-samsung-a52q.dts: i2c-ois + ois@62
+  ~/src/wt-idlefix (a52q/idlefix) sm7125-samsung-a52q.dts: cpu_pd0-7 level 4 only
+  recipes repo: device-a52q UCM HiFi.conf (Earpiece)
+  this repo: DEBUG.md, autonomy/ (blackbox, stream, vphlog, sink unit, ff-fresh.sh), harnesses (soak.sh,
+  camff*.sh, idlecl.sh, idlev.sh, freqff.sh, memscan.py, execscan.py, jitciv.py, jit/jitstress2.c),
+  uki-recmd.sh (DTB=), bootff.sh ($APP).
+
+## 2026-10-12 18:10 — the three DT fixes committed, merged and pushed (user go-ahead: own repo + own GitHub only)
+- Validation of the combined DTB first (UKI a52qtest_0.26.1012.4, trials all3ff-*, camff-all3-*): Firefox fresh
+  profile 10/10 OK; main (4616x3468) and front camera 3 frames each; rkp_mem reserved; cpuidle = WFI +
+  level-4 only on all CPUs; cluster genpd S0/S1 used 22/140 times (rejected 7/74) in that boot; OIS bound;
+  execscan completes (2331 MB). Only failed unit: bengalos-debug-usbnet (debug kernel).
+- Codex review (gpt-6-astra, xhigh) of the three diffs: nothing on rkp_mem. Kept as follow-ups: OIS starts
+  without the module EEPROM gain cells (MCU XGG/YGG f628dc3e.../...e13e vs EEPROM 8a74f93e 1d250e3f: wire up
+  nvmem cells); the 1 s i2c-gpio timeout turns a dead MCU into a 160 s camera-open stall (driver should give
+  up on transport errors). Dismissed: "keep the Silver intermediate state" (its premise that a CPU domain is
+  never off at level 3 with two states is wrong: the genpd governor picks the domain state, cpu_power_down_ok /
+  psci_pd_power_off; and only the all-level-4 layout was tested); node ordering (the file is not ordered that
+  way today). Acted on: dropped the unproven "Gold core failed to resume" sentence from the idle comment.
+- Commits (author Miroslav Mráz, no trailers), branches off a9f10dc:
+  27682a17dadd a52q/rsvmem   sm7125-samsung-common: reserve the hypervisor (RKP) memory
+  3d2661bf759d a52q/oisdt    sm7125-samsung-a52q: add the main-camera OIS MCU
+  85dd395ce89b a52q/idlefix  sm7125-samsung-a52q: use only rail power-down for the CPU domains
+  merged --no-ff into a52q/integ = 98d661c501c9. The merged tree's a52q DTB is byte-identical to the tested
+  one (sha256 8b473eb3fe60...c838e3c, built on the laptop; a72q DTB builds too, no new warnings).
+  Pushed fast-forward a9f10dcc867a..98d661c501c9 to github.com/miromraz/linux obs/a52q-integ. Nothing sent
+  anywhere else. OBS still builds a9f10dc (pinned by SHA) until its package meta is re-saved.
+  Temporary worktrees wt-rsvmem/wt-oisdt/wt-idlefix/wt-integ removed (branches kept).
+- Phone: runs UKI a52qtest_0.26.1012.4 = debug kernel a9f10dc+dbg config with the new DTB (blessed);
+  rollback image /var/tmp/a52qtest_0.26.1011.2.efi.bak is the PRE-fix one (freezes). Swap is off until the
+  next reboot (execscan). Heavy trace stream (~300 KB/s) and a52-blackbox still on.
+
+## 2026-10-12 19:00 — wrap-up: lean stream restored, review fixes, notes + scripts committed
+- Phone: /etc/a52-ftrace-stream.sh is the lean pre-10-11 script again (10 events; the full variant with SCM/
+  RPMh/cpufreq/PSCI/VPH is kept as autonomy/a52-ftrace-stream-full.sh, install it by hand for a debugging
+  session). Rebooted on UKI 0.26.1012.4: swap back, rkp range reserved. a52-blackbox stays enabled (0.3 % CPU).
+  Harnesses that analyse PSCI/SCM events (idlecl.sh, idlev.sh, freqff.sh) need the full stream.
+- Codex review of the scripts (23 findings). Fixed: a52-blackbox.py (a failed UDP send no longer skips the
+  local copy; self-test re-run OK), jitciv.py (failed worker = non-zero exit), uki-recmd.sh (refuses to build
+  a UKI with an empty command line), idlecl.sh slice (awk pass 1 had no input file), homeio.py (works in and
+  removes only its own scratch subdirectory, not DIR), UCM Earpiece (mono mix: Right ASI1 Sel LeftRightDiv2
+  while selected, restored to Right; left-only and right-only 1 kHz tones both RMS ~2089 at the bottom mic vs
+  14.5 silent). Known and left as they are (records of what ran): freqff/idlev/idlecl can log OK if a freeze
+  lands on the trial deadline and do not compare boot ids; `pgrep -f` readiness checks can match their own
+  shell; cdtrial-style harnesses interpolate arguments into the remote shell; sm5714reg.py writes whole
+  register bytes with no validation; a52-lowbat-cap (obsolete idea) mishandles read errors and restarts;
+  udprelay.py drops the newline of lines over 1400 bytes; uki-recmd.sh removes the old test UKI before the
+  new one exists (the ESP cannot hold two; keep a copy in /var/tmp); per-trial raw slices under /tmp on dev
+  are not size-capped (719 MB of /tmp/camff removed today).
+- .gitignore: bench/ (1.5 GB Geekbench + debs), wifisrv/ (300 MB test file), the three static jit binaries.
+- Recipes repo: UCM Earpiece committed on the local branch a52q, NOT pushed (origin is the BengalOS team's
+  repository on salsa.debian.org, not the user's).

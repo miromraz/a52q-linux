@@ -1,0 +1,10 @@
+[Unit]
+Description=Reconnect Wi-Fi or reboot when the gateway is unreachable (dev handset)
+After=NetworkManager.service
+
+[Service]
+ExecStart=/bin/sh /etc/a52-wifiwatch.sh
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

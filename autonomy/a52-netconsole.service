@@ -1,0 +1,13 @@
+[Unit]
+Description=netconsole to dev (192.168.100.105) over Wi-Fi (debug kernel only)
+ConditionPathExists=/sys/kernel/config/netconsole
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c "until ip -4 -o addr show wld0 | grep -q inet; do sleep 2; done; T=/sys/kernel/config/netconsole/dev; mkdir -p $T; echo wld0 > $T/dev_name; ip -4 -o addr show wld0 | awk \"{split(\\$4,a,\\\"/\\\"); print a[1]}\" > $T/local_ip; echo 192.168.100.105 > $T/remote_ip; echo bc:24:11:e2:1e:f8 > $T/remote_mac; echo 6666 > $T/remote_port; echo 1 > $T/enabled; echo 8 > /proc/sys/kernel/printk"
+
+[Install]
+WantedBy=multi-user.target

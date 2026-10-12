@@ -1,0 +1,12 @@
+[Unit]
+Description=Galaxy A52 freeze-debug UDP sinks (netconsole 6666, strace 6667, ftrace 6668, blackbox 6669), size-capped
+
+[Service]
+# dev's LAN address; if it ever changes, the bind fails and the unit restart-loops visibly
+ExecStart=/usr/bin/python3 %h/mobile-linux/linux-a52q/autonomy/a52-udpsink.py %h/mobile-linux/linux-a52q/logs-1003 192.168.100.105 6666:netcon-dev.log:100 6667:fftrace-dev.log:500 6668:ftrace-dev.log:1000 6669:blackbox-dev.log:200
+Restart=always
+RestartSec=5
+Nice=10
+
+[Install]
+WantedBy=default.target
